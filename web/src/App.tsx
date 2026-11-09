@@ -13,11 +13,22 @@ import QuizEditor from './pages/QuizEditor'
 import Console from './pages/Console'
 import Results from './pages/Results'
 import Projection from './pages/Projection'
-import { teacherToken } from './lib/api'
+import Connexion from './pages/Connexion'
+import StudentSignup from './pages/StudentSignup'
+import StudentHome from './pages/StudentHome'
+import StudyNew from './pages/StudyNew'
+import Evolution from './pages/Evolution'
+import StudyCourse from './pages/StudyCourse'
+import { studentToken, teacherToken } from './lib/api'
 
 const Private = ({ children }: { children: React.ReactElement }) => {
   const loc = useLocation()
   return teacherToken() ? children : <Navigate to={`/enseignant/connexion?next=${encodeURIComponent(loc.pathname)}`} replace />
+}
+
+const PrivateStudent = ({ children }: { children: React.ReactElement }) => {
+  const loc = useLocation()
+  return studentToken() ? children : <Navigate to={`/connexion?next=${encodeURIComponent(loc.pathname)}`} replace />
 }
 
 export default function App() {
@@ -27,6 +38,12 @@ export default function App() {
       <Route path="/j/:code" element={<Join />} />
       <Route path="/play/:code" element={<Play />} />
       <Route path="/projection/:code" element={<Projection />} />
+      <Route path="/connexion" element={<Connexion />} />
+      <Route path="/etudiant/inscription" element={<StudentSignup />} />
+      <Route path="/etudiant" element={<PrivateStudent><StudentHome /></PrivateStudent>} />
+      <Route path="/etudiant/evolution" element={<PrivateStudent><Evolution /></PrivateStudent>} />
+      <Route path="/etudiant/study/nouveau" element={<PrivateStudent><StudyNew /></PrivateStudent>} />
+      <Route path="/etudiant/study/:id" element={<PrivateStudent><StudyCourse /></PrivateStudent>} />
       <Route path="/enseignant/connexion" element={<Login />} />
       <Route path="/enseignant/inscription" element={<Signup />} />
       <Route path="/enseignant/mot-de-passe-oublie" element={<Forgot />} />
