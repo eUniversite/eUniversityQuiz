@@ -9,22 +9,35 @@ import { RateLimiter, normalizeCode, hashToken, newToken } from './security.js'
 import { mailer, sendResetMail } from './mailer.js'
 import { emailSchema, joinSchema, loginSchema, quizSchema, resetSchema, signupSchema } from './validation.js'
 import { rankBy } from './scoring.js'
+import { buildStudyRouter } from './study/routes.js'
 
-declare module 'express-serve-static-core' { interface Request { teacherId?: string; teacherPwdAt?: number } }
+declare module 'express-serve-static-core' { interface Request { teacherId?: string; teacherPwdAt?: number; studentId?: string } }
 
 const signTeacher = (id: string, pwdAt: number) => jwt.sign({ sub: id, pwd: pwdAt }, config.jwtSecret, { expiresIn: '12h' })
 
 /** Vérifie le JWT, le compte et l'invalidation après changement de mot de passe. */
 export async function authenticateTeacher(token: string | undefined): Promise<{ id: string; pwdAt: number } | null> {
   if (!token) return null
-  let payload: { sub?: string; pwd?: number }
+  let payload: { sub?: string; pwd?: number; role?: string }
   try { payload = jwt.verify(token, config.jwtSecret) as typeof payload } catch { return null }
-  if (!payload.sub) return null
+  if (!payload.sub || payload.role === 'student') return null
   const t = await prisma.teacher.findUnique({ where: { id: payload.sub }, select: { id: true, passwordChangedAt: true } }).catch(() => null)
   if (!t) return null
   const pwdAt = t.passwordChangedAt ? +t.passwordChangedAt : 0
   if (pwdAt > (payload.pwd ?? 0)) return null // jeton émis avant le dernier changement de mot de passe
   return { id: t.id, pwdAt }
+}
+
+const signStudent = (id: string) => jwt.sign({ sub: id, role: 'student' }, config.jwtSecret, { expiresIn: '30d' })
+
+/** Jeton étudiant : doit porter le rôle « student » (un jeton enseignant n'ouvre jamais l'espace étudiant). */
+export async function authenticateStudent(token: string | undefined): Promise<{ id: string } | null> {
+  if (!token) return null
+  let payload: { sub?: string; role?: string }
+  try { payload = jwt.verify(token, config.jwtSecret) as typeof payload } catch { return null }
+  if (!payload.sub || payload.role !== 'student') return null
+  const s = await prisma.student.findUnique({ where: { id: payload.sub }, select: { id: true } }).catch(() => null)
+  return s ? { id: s.id } : null
 }
 
 const loginByIp = new RateLimiter(20, 15 * 60_000)
@@ -41,6 +54,13 @@ async function requireTeacher(req: Request, res: Response, next: NextFunction) {
   const t = await authenticateTeacher(req.headers.authorization?.replace(/^Bearer /, ''))
   if (!t) return res.status(401).json({ error: 'Connexion requise.' })
   req.teacherId = t.id; req.teacherPwdAt = t.pwdAt
+  next()
+}
+
+async function requireStudent(req: Request, res: Response, next: NextFunction) {
+  const s = await authenticateStudent(req.headers.authorization?.replace(/^Bearer /, ''))
+  if (!s) return res.status(401).json({ error: 'Connexion requise.' })
+  req.studentId = s.id
   next()
 }
 
@@ -111,6 +131,39 @@ export function buildRouter() {
     ])
     res.json({ ok: true })
   }))
+
+  // ---- connexion unifiée : le serveur reconnaît le profil (enseignant ou étudiant) ----
+  r.post('/session/login', ah(async (req, res) => {
+    const { email, password } = loginSchema.parse(req.body)
+    const e = email.toLowerCase()
+    if (!loginByIp.hit(req.ip || '?') || !loginByEmail.hit(e)) return res.status(429).json({ error: 'Trop de tentatives. Réessayez dans quelques minutes.' })
+    const [t, s] = await Promise.all([prisma.teacher.findUnique({ where: { email: e } }), prisma.student.findUnique({ where: { email: e } })])
+    // Deux comparaisons à chaque fois : le temps de réponse ne révèle ni le profil ni l'existence du compte.
+    const [okT, okS] = await Promise.all([bcrypt.compare(password, t?.passwordHash ?? DUMMY_HASH), bcrypt.compare(password, s?.passwordHash ?? DUMMY_HASH)])
+    if (t && okT) {
+      const pwdAt = t.passwordChangedAt ? +t.passwordChangedAt : 0
+      return res.json({ role: 'teacher', token: signTeacher(t.id, pwdAt), user: { id: t.id, name: t.name, email: t.email } })
+    }
+    if (s && okS) return res.json({ role: 'student', token: signStudent(s.id), user: { id: s.id, name: s.name, email: s.email } })
+    res.status(401).json({ error: 'E-mail ou mot de passe incorrect.' })
+  }))
+
+  // ---- compte étudiant (Study) ----
+  r.post('/student/signup', ah(async (req, res) => {
+    if (!signupByIp.hit(req.ip || '?')) return res.status(429).json({ error: 'Trop de tentatives. Réessayez plus tard.' })
+    const d = signupSchema.parse(req.body)
+    const exists = await prisma.student.findUnique({ where: { email: d.email } })
+    if (exists) return res.status(409).json({ error: 'Un compte existe déjà avec cette adresse e-mail.', fields: [{ path: 'email', message: 'Un compte existe déjà avec cette adresse e-mail.' }] })
+    const s = await prisma.student.create({ data: { email: d.email, name: d.name, passwordHash: await bcrypt.hash(d.password, 12) } })
+    res.status(201).json({ role: 'student', token: signStudent(s.id), user: { id: s.id, name: s.name, email: s.email } })
+  }))
+  r.get('/student/me', requireStudent, ah(async (req, res) => {
+    const s = await prisma.student.findUnique({ where: { id: req.studentId } })
+    if (!s) return res.status(401).json({ error: 'Connexion requise.' })
+    res.json({ id: s.id, name: s.name, email: s.email })
+  }))
+
+  r.use('/study', buildStudyRouter(requireStudent, ah))
 
   // ---- quiz ----
   const quizOut = (q: any) => ({

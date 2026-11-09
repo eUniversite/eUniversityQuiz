@@ -35,6 +35,97 @@ model Teacher {
   actionTokens     ActionToken[]
 }
 
+// Compte étudiant (module Study) : progression personnelle. Les étudiants de Live restent anonymes par session.
+model Student {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+  courses      StudyCourse[]
+  sessions     StudySession[]
+  notionStates StudyNotionState[]
+  missions     StudyMissionResult[]
+}
+
+enum StudyStatus {
+  QUEUED
+  EXTRACTING
+  ANALYSING
+  CREATING
+  READY
+  FAILED
+}
+
+// Cours importé par un étudiant (Study). Le fichier n'est PAS conservé : seuls l'analyse et les questions le sont.
+model StudyCourse {
+  id        String      @id @default(uuid())
+  studentId String
+  student   Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  fileName  String
+  title     String?
+  status    StudyStatus @default(QUEUED)
+  error     String?
+  // File de tâches : le texte extrait attend ici d'être traité (puis est effacé : le cours n'est jamais conservé).
+  sourceText Json?
+  unit       String?
+  attempts   Int         @default(0)
+  runAfter   DateTime?
+  lockedAt   DateTime?
+  progress   Int         @default(0)
+  step       String?
+  // Résultat de l'étape d'analyse : titre, résumé, missions (chapitres) et notions repérées.
+  analysis  Json?
+  model     String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  questions StudyQuestion[]
+  notions   StudyNotion[]
+  notionStates StudyNotionState[]
+  sessions  StudySession[]
+  missionResults StudyMissionResult[]
+
+  @@index([studentId, createdAt])
+}
+
+// Notion clé d'un chapitre (mission) : c'est l'unité que suit le Learn Engine. Trois questions de niveaux croissants la couvrent.
+model StudyNotion {
+  id        String      @id @default(uuid())
+  courseId  String
+  course    StudyCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  missionId String
+  position  Int
+  label     String
+  sourcePage Int?
+  questions StudyQuestion[]
+
+  @@index([courseId, missionId, position])
+}
+
+model StudyQuestion {
+  id            String      @id @default(uuid())
+  courseId      String
+  course        StudyCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  missionId     String
+  notionId      String?
+  notion        StudyNotion? @relation(fields: [notionId], references: [id], onDelete: SetNull)
+  // Niveau de difficulté : 1 = rappel (facile), 2 = compréhension, 3 = application.
+  level         Int         @default(1)
+  position      Int
+  kind          String
+  text          String
+  choices       Json
+  answerIndex   Int
+  explanation   String
+  sourcePage    Int?
+  sourceExcerpt String
+  // true = une seconde lecture indépendante du modèle a retrouvé la même bonne réponse dans le cours.
+  verified      Boolean     @default(false)
+  attempts      StudyAttempt[]
+
+  @@index([courseId, position])
+}
+
 model Quiz {
   id          String         @id @default(uuid())
   teacherId   String
@@ -152,4 +243,75 @@ model Answer {
 
   // Garantit une seule réponse par participant et par question.
   @@unique([questionId, participantId])
+}
+
+// ---- Learn Engine : progression pédagogique, séparée de l'XP de jeu ----------------------------------------
+// Une séance = une partie jouée (cours entier, une mission, ou révision). Le serveur recalcule tout (réponses, XP, étoiles) :
+// le navigateur n'envoie que les réponses choisies.
+model StudySession {
+  id         String   @id @default(uuid())
+  studentId  String
+  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  courseId   String
+  course     StudyCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  scope      String   // 'course' | 'mission:m2' | 'review'
+  xp         Int
+  stars      Int
+  correct    Int
+  total      Int
+  bestStreak Int
+  coins      Int      @default(0)
+  victory    Boolean
+  createdAt  DateTime @default(now())
+  attempts   StudyAttempt[]
+
+  @@index([studentId, createdAt])
+  @@index([courseId])
+}
+
+model StudyAttempt {
+  id         String        @id @default(uuid())
+  sessionId  String
+  session    StudySession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  studentId  String
+  questionId String
+  question   StudyQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  correct    Boolean
+  // Réponse donnée sans aide (le jeu n'offre pas encore d'indice : toujours true pour l'instant).
+  unassisted Boolean       @default(true)
+  createdAt  DateTime      @default(now())
+
+  @@index([studentId, questionId, createdAt])
+}
+
+// Planning de rappel d'une NOTION pour un étudiant : J+1 après une erreur, puis J+3, J+7, J+14 après réussite.
+// Une révision de la notion se fait avec une question différente à chaque fois ; seul le résultat de la séance replanifie la notion.
+// notionKey = id de la notion, ou « m:<mission> » pour les anciens cours sans notions.
+model StudyNotionState {
+  studentId   String
+  student     Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  courseId    String
+  course      StudyCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  notionKey   String
+  box         Int         @default(0)
+  dueAt       DateTime
+  lastCorrect Boolean
+  attempts    Int         @default(0)
+  updatedAt   DateTime    @updatedAt
+
+  @@id([studentId, notionKey])
+  @@index([studentId, dueAt])
+}
+
+model StudyMissionResult {
+  studentId  String
+  student    Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  courseId   String
+  course     StudyCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  missionId  String
+  bestStars  Int         @default(0)
+  plays      Int         @default(0)
+  updatedAt  DateTime    @updatedAt
+
+  @@id([studentId, courseId, missionId])
 }

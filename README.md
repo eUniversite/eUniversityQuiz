@@ -72,3 +72,12 @@ Test de charge (200 étudiants, 3 questions de 10 s, 60 % des réponses dans les
 - Interface web non testée automatiquement dans un navigateur (vérifiée par compilation TypeScript/build) : faire un essai à blanc avec quelques téléphones avant le premier cours.
 - Pas de réinscription publique de professeurs, pas de changement de mot de passe dans l'interface (relancer `db:seed` ne modifie pas un compte existant).
 - Le serveur n'applique pas de HTTPS lui-même : utiliser un proxy TLS (les caméras/QR n'en ont pas besoin, mais les navigateurs préfèrent HTTPS).
+
+## Study : création de parcours par LLM
+
+Un étudiant (compte étudiant) importe un cours (PDF texte, DOCX, TXT, MD) → analyse → création des questions → jeu 3D « Course des savoirs » (`web/public/jeu/`, lancé avec `?course=<id>`).
+
+- Configurer `GEMINI_API_KEY` (et au besoin `GEMINI_MODEL`) dans `.env`, puis redémarrer le serveur. Sans clé, l'import répond « pas encore activé ».
+- Les prompts système sont dans `server/src/study/prompts.ts`, l'unique appel au modèle dans `server/src/study/gemini.ts` (le modèle auto-hébergé remplacera cette fonction).
+- Contrôle qualité avant enregistrement (`server/src/study/pipeline.ts`) : 4 propositions distinctes, extrait source retrouvé dans le document, pas de doublon.
+- Le fichier importé n'est pas conservé ; les PDF scannés ne sont pas encore pris en charge (pas d'OCR).

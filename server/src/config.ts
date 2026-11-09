@@ -18,6 +18,13 @@ export const config = {
   smtpSecure: process.env.SMTP_SECURE === '1',
   smtpUser: process.env.SMTP_USER || '',
   smtpPass: process.env.SMTP_PASS || '',
+  // Study : génération de quiz par LLM (Gemini pour les essais ; le modèle auto-hébergé reprendra la même interface).
+  geminiApiKey: process.env.GEMINI_API_KEY || '',
+  geminiModel: process.env.GEMINI_MODEL || 'gemini-3.5-flash',
+  geminiFallbackModels: (process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-3.1-flash-lite').split(',').map((s) => s.trim()).filter(Boolean),
+  geminiBase: process.env.GEMINI_API_BASE || 'https://generativelanguage.googleapis.com/v1beta',
+  studyQuestions: Number(process.env.STUDY_QUESTIONS || 8),
+  studyMaxUploadMb: Number(process.env.STUDY_MAX_UPLOAD_MB || 10),
   mailFrom: process.env.MAIL_FROM || 'eUniversité Quiz <no-reply@euniversite.ci>',
 }
 
