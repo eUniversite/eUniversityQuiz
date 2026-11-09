@@ -26,7 +26,7 @@ export function buildStudyRouter(requireStudent: RequestHandler, ah: AH) {
     return {
       id: c.id, fileName: c.fileName, title: c.title, status: c.status, error: c.error, progress: c.progress ?? 0, step: c.step ?? null, createdAt: c.createdAt,
       summary: a?.summary ?? null,
-      missions: a?.missions?.map((m) => ({ title: m.title, notions: m.notions.length })) ?? [],
+      missions: a?.missions?.map((m) => ({ title: m.title, notions: m.notions.length, labels: m.notions.map((n) => n.label) })) ?? [],
       questionCount: c._count?.questions ?? 0,
     }
   }

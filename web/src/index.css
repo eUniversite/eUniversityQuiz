@@ -129,3 +129,66 @@
 .gm-stars { position: absolute; left: 50%; bottom: -24px; transform: translateX(-50%); display: flex; gap: 1px; font-size: 1.1rem; white-space: nowrap; }
 .gm-due { position: absolute; top: -6px; right: -6px; min-width: 24px; height: 24px; padding: 0 5px; display: grid; place-items: center; border-radius: 999px; background: #ef5a5a; color: #fff; border: 2px solid rgb(var(--ink)); font-size: .85rem; font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .gm-node.current { animation: none; } }
+
+/* ===== Création du parcours : mise en scène animée (lecture, chapitres, questions, célébration) ===== */
+.cs { display: grid; gap: 2rem; }
+.cs-track { display: flex; justify-content: space-between; position: relative; margin: 0 .5rem; list-style: none; padding: 0; }
+.cs-track::before { content: ''; position: absolute; left: 1.2rem; right: 1.2rem; top: 17px; height: 3px; background: rgb(var(--ink) / .12); }
+.cs-track li { position: relative; display: grid; justify-items: center; gap: .4rem; color: rgb(var(--ink-soft)); font-size: .95rem; }
+.cs-dot { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; border: 2px solid rgb(var(--ink)); background: rgb(var(--card)); font-weight: 600; transition: background .4s, transform .4s; }
+.cs-track li.on .cs-dot { background: rgb(var(--brand)); transform: scale(1.12); animation: cs-pulse 1.6s ease-in-out infinite; }
+.cs-track li.done .cs-dot { background: #5bd382; }
+.cs-track li.on .cs-lbl, .cs-track li.done .cs-lbl { color: rgb(var(--ink)); font-weight: 600; }
+@keyframes cs-pulse { 50% { box-shadow: 0 0 0 8px rgb(var(--brand) / .22); } }
+
+/* Lecture : une feuille de cours parcourue par un faisceau */
+.cs-read { position: relative; display: grid; place-items: center; height: 280px; }
+.cs-sheet { position: relative; width: 190px; padding: 22px 18px; border: 2px solid rgb(var(--ink)); border-radius: 14px; background: rgb(var(--card)); box-shadow: 0 4px 0 rgb(var(--ink)); display: grid; gap: 10px; overflow: hidden; animation: cs-bob 3s ease-in-out infinite; }
+.cs-line { display: block; height: 8px; border-radius: 4px; background: rgb(var(--ink) / .12); animation: cs-ink 2.6s ease-in-out infinite; animation-delay: calc(var(--i) * .22s); }
+@keyframes cs-ink { 0%, 100% { background: rgb(var(--ink) / .12); } 18% { background: rgb(var(--brand)); } 36% { background: rgb(var(--ink) / .28); } }
+.cs-beam { position: absolute; left: 0; right: 0; top: 0; height: 36px; background: linear-gradient(180deg, transparent, rgb(var(--brand) / .45), transparent); animation: cs-scan 2.6s ease-in-out infinite; }
+@keyframes cs-scan { 0% { transform: translateY(-40px); } 100% { transform: translateY(250px); } }
+@keyframes cs-bob { 50% { transform: translateY(-6px) rotate(-.6deg); } }
+.cs-spark { position: absolute; width: 10px; height: 10px; border-radius: 50%; background: #ffc93c; border: 2px solid rgb(var(--ink)); animation: cs-twinkle 2.4s ease-in-out infinite; }
+.cs-spark.s1 { left: 18%; top: 22%; } .cs-spark.s2 { right: 16%; top: 38%; animation-delay: .8s; } .cs-spark.s3 { left: 26%; bottom: 16%; animation-delay: 1.5s; }
+@keyframes cs-twinkle { 0%, 100% { transform: scale(0); opacity: 0; } 50% { transform: scale(1); opacity: 1; } }
+
+/* Chapitres : cartes qui arrivent, notions qui apparaissent, chapitre actif animé, chapitre terminé coché */
+.cs-chapters { display: grid; gap: 1rem; list-style: none; padding: 0; margin: 0; }
+.cs-card { position: relative; display: flex; align-items: flex-start; gap: 1rem; padding: 1.1rem 1.2rem; border: 2px solid rgb(var(--ink)); border-radius: 16px; background: rgb(var(--card)); box-shadow: 0 3px 0 rgb(var(--ink)); animation: cs-rise .55s cubic-bezier(.2, 1.1, .3, 1) both; animation-delay: var(--d); transition: opacity .4s, background .4s; }
+.cs-card.wait { opacity: .55; }
+.cs-card.active { background: linear-gradient(110deg, rgb(var(--card)) 30%, rgb(var(--brand-soft)) 50%, rgb(var(--card)) 70%) 0 0 / 250% 100%; animation: cs-rise .55s cubic-bezier(.2, 1.1, .3, 1) both, cs-shimmer 2s linear infinite; animation-delay: var(--d), 0s; }
+.cs-card.done { background: #eaf8ee; }
+@keyframes cs-rise { from { opacity: 0; transform: translateY(18px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes cs-shimmer { to { background-position: -150% 0; } }
+.cs-num { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 50%; border: 2px solid rgb(var(--ink)); background: rgb(var(--brand)); font-weight: 600; }
+.cs-card.wait .cs-num { background: rgb(var(--card)); }
+.cs-card.done .cs-num { background: #5bd382; animation: cs-check .5s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes cs-check { from { transform: scale(.3) rotate(-40deg); } to { transform: none; } }
+.cs-title { font-weight: 600; font-size: 1.05rem; line-height: 1.3; }
+.cs-chips { display: flex; flex-wrap: wrap; gap: .4rem; list-style: none; padding: 0; margin: .6rem 0 0; }
+.cs-chips li { padding: .15rem .65rem; border: 2px solid rgb(var(--ink)); border-radius: 999px; background: #fff; font-size: .82rem; animation: cs-popin .45s cubic-bezier(.2, 1.6, .4, 1) both; animation-delay: var(--d); }
+@keyframes cs-popin { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: none; } }
+.cs-bubbles { position: absolute; right: 1rem; top: .6rem; display: flex; gap: .35rem; pointer-events: none; }
+.cs-bubbles i { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; border: 2px solid rgb(var(--ink)); background: #ffc93c; font-style: normal; font-size: .8rem; font-weight: 600; animation: cs-bubble 2.2s ease-in infinite; opacity: 0; }
+.cs-bubbles i:nth-child(2) { animation-delay: .7s; } .cs-bubbles i:nth-child(3) { animation-delay: 1.4s; }
+@keyframes cs-bubble { 0% { transform: translateY(14px) scale(.4); opacity: 0; } 25% { opacity: 1; } 100% { transform: translateY(-22px) scale(1); opacity: 0; } }
+
+.cs-foot { display: grid; gap: .7rem; }
+.cs-cap { text-align: center; font-size: 1.05rem; color: rgb(var(--ink-soft)); }
+.cs-dots::after { content: ''; display: inline-block; width: 1.2em; text-align: left; animation: cs-dots 1.2s steps(1) infinite; }
+@keyframes cs-dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+
+/* Célébration quand le parcours est prêt */
+.cs-ready { display: grid; justify-items: center; gap: 1.5rem; padding: 4rem 0; text-align: center; animation: cs-rise .4s both; }
+.cs-burst { position: relative; display: grid; place-items: center; width: 120px; height: 120px; }
+.cs-burst i { position: absolute; width: 12px; height: 12px; border-radius: 3px; background: var(--c); animation: cs-fly .9s cubic-bezier(.1, .8, .3, 1) both; animation-delay: var(--d); }
+@keyframes cs-fly { from { transform: translate(0, 0) scale(.3) rotate(0); opacity: 1; } to { transform: translate(var(--x), var(--y)) scale(1) rotate(260deg); opacity: 0; } }
+.cs-trophy { display: grid; place-items: center; width: 96px; height: 96px; font-size: 52px; border-radius: 50%; border: 2px solid rgb(var(--ink)); background: #ffc93c; box-shadow: 0 4px 0 rgb(var(--ink)); animation: cs-trophy .8s cubic-bezier(.2, 1.6, .4, 1) both; }
+@keyframes cs-trophy { from { transform: scale(0) rotate(-30deg); } to { transform: none; } }
+.cs-fade { animation: cs-rise .5s both; }
+@media (prefers-reduced-motion: reduce) {
+  .cs *, .cs-ready *, .cs-fade { animation: none !important; transition: none !important; }
+  .cs-chips li, .cs-card { opacity: 1 !important; }
+  .cs-bubbles, .cs-beam, .cs-spark { display: none; }
+}
