@@ -4,14 +4,18 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host",
-    "build": "tsc --noEmit && vite build"
+    "build:jeu": "node scripts/build-jeu.mjs",
+    "watch:jeu": "node scripts/build-jeu.mjs --watch",
+    "dev": "npm run build:jeu && vite --host",
+    "build": "npm run build:jeu && tsc --noEmit && vite build"
   },
   "devDependencies": {
+    "@babylonjs/core": "^8.56.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "autoprefixer": "^10.6.1",
+    "esbuild": "^0.28.2",
     "playwright-core": "^1.64.1",
     "postcss": "^8.5.31",
     "tailwindcss": "^3.4.19",

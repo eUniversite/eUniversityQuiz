@@ -3,3 +3,6 @@ dist
 .env
 *.log
 .DS_Store
+
+# Jeu 3D de Study : fichier généré par `npm run build:jeu` (sources dans web/jeu-src)
+web/public/jeu/game.bundle.js
