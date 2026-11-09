@@ -1,19 +1,35 @@
-import { FormEvent, useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { api, teacherToken } from '../lib/api'
+import { FormEvent, useEffect, useState, type CSSProperties } from 'react'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { api, currentRole, homeFor } from '../lib/api'
 import { cleanCode } from '../lib/student'
 import { Logo } from '../components/ui'
 
+/** Split Text : découpe un texte en mots (masques) puis en lettres qui montent en cascade. `from` = rang de la première lettre. */
+function Split({ text, from = 0 }: { text: string; from?: number }) {
+  let i = from
+  return (
+    <>
+      {text.split(/(?<=\s)/).map((word, w) => (
+        <span key={w} className="lp-word" aria-hidden>
+          {[...word].map((ch, k) => <span key={k} className="lp-char" style={{ '--i': i++ } as CSSProperties}>{ch}</span>)}
+        </span>
+      ))}
+    </>
+  )
+}
+
+/** Accueil commun : titre, deux services côte à côte, chacun avec son bouton « Commencer ». */
 export default function Landing() {
   const nav = useNavigate()
-  const [open, setOpen] = useState(false)
+  const [codeOpen, setCodeOpen] = useState(false)
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const input = useRef<HTMLInputElement>(null)
+  useEffect(() => { document.title = 'eUniversité — Enseigner, apprendre, jouer' }, [])
 
-  useEffect(() => { document.title = 'eUniversité Quiz — Quiz interactifs en direct' }, [])
-  useEffect(() => { if (open) input.current?.focus() }, [open])
+  // Redirection intelligente : un profil déjà connecté arrive directement dans son espace.
+  const role = currentRole()
+  if (role) return <Navigate to={homeFor(role)} replace />
 
   async function join(e: FormEvent) {
     e.preventDefault()
@@ -29,58 +45,72 @@ export default function Landing() {
 
   return (
     <div className="relative flex min-h-dvh flex-col overflow-x-hidden bg-paper px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-[max(1.25rem,env(safe-area-inset-top))] sm:px-10 lg:px-16">
-      {/* Ambiance : halo chaud + trame de points, purement décorative */}
-      <div aria-hidden className="pointer-events-none absolute inset-0">
+      <div aria-hidden className="absolute inset-0 pointer-events-none">
         <div className="absolute -right-40 -top-40 h-[34rem] w-[34rem] rounded-full bg-brand/15 blur-3xl" />
         <div className="absolute -bottom-56 -left-40 h-[30rem] w-[30rem] rounded-full bg-brand/10 blur-3xl" />
         <div className="absolute inset-0 [background-image:radial-gradient(rgb(var(--ink)/.06)_1px,transparent_1px)] [background-size:26px_26px] [mask-image:linear-gradient(to_bottom_right,black,transparent_55%)]" />
       </div>
 
-      <header className="relative flex items-center justify-between"><Logo className="h-10 sm:h-12" />
-        <Link to="/enseignant/connexion" className="min-h-[44px] rounded-xl px-3 py-2 text-base font-semibold text-ink-soft hover:text-ink">Se connecter</Link>
+      <header className="relative flex items-center justify-between lp-fade"><Logo className="h-10 sm:h-12" />
+        <Link to="/connexion" className="min-h-[44px] px-2 py-2 text-base font-semibold text-ink-soft underline-offset-4 hover:text-ink hover:underline">Se connecter</Link>
       </header>
 
-      <main className="relative mx-auto grid w-full max-w-6xl flex-1 items-center gap-10 py-8 lg:grid-cols-[1.05fr_.95fr] lg:gap-16">
-        <section className="animate-rise">
-          <p className="inline-flex items-center gap-2 rounded-full border border-brand/40 bg-brand-soft px-4 py-1.5 text-sm font-bold text-ink shadow-sm">
-            <span className="h-2 w-2 animate-breathe rounded-full bg-brand" aria-hidden />Quiz interactifs en direct
-          </p>
-          <h1 className="mt-5 text-5xl font-extrabold leading-[1.05] tracking-tight text-ink sm:text-6xl xl:text-7xl">
-            Faites participer <span className="underline decoration-brand decoration-[.14em] underline-offset-[.12em]">toute la classe.</span>
+      <main className="relative flex-1 w-full max-w-5xl py-8 mx-auto lg:py-12">
+        {/* Titre */}
+        <section>
+          <h1 aria-label="Enseigner en direct. Apprendre en jouant." className="w-full text-center font-extrabold leading-[1.15] tracking-tight text-ink text-[clamp(1.6rem,7.2vw,3.75rem)]">
+            <span className="block whitespace-nowrap"><Split text="Enseigner en direct." /></span>
+            <span className="block whitespace-nowrap"><span className="lp-underline" style={{ animationDelay: '1.7s' }}><Split text="Apprendre en jouant." from={20} /></span></span>
           </h1>
-          <p className="mt-5 max-w-xl text-lg leading-relaxed text-ink-soft sm:text-xl">
-            Créez un quiz, partagez le code et laissez vos étudiants répondre en direct.
-          </p>
+        </section>
 
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <button type="button" className="btn-primary min-h-[56px] px-7 text-lg shadow-[0_10px_25px_-8px_rgb(var(--brand))] hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-8px_rgb(var(--brand))]" aria-expanded={open} aria-controls="join-form"
-              onClick={() => (open ? input.current?.focus() : setOpen(true))}>Accéder à une session</button>
-            <Link to={teacherToken() ? '/enseignant' : '/enseignant/inscription'}
-              className="btn min-h-[56px] border-2 border-ink bg-card/60 px-7 text-lg text-ink backdrop-blur hover:-translate-y-0.5 hover:bg-ink hover:text-white hover:shadow-lg">Créer une session</Link>
-          </div>
+        {/* Les deux profils, côte à côte, alignés */}
+        <section className="grid gap-6 mt-10 lg:mt-14 lg:grid-cols-2 lg:gap-8" aria-label="Les deux profils">
+          <article className="flex flex-col gap-5 card lp-card" style={{ '--d': '.7s' } as CSSProperties}>
+            <StudyPreview />
+            <div>
+              <p className="text-sm font-bold tracking-wider uppercase text-brand-dark">Étudiant</p>
+              <h2 className="mt-1 text-3xl font-extrabold">Study</h2>
+              <p className="mt-2 text-lg leading-relaxed text-ink-soft">
+                Importez un cours et jouez-le comme un jeu de course : chaque bonne réponse ouvre la porte suivante. Votre progression est gardée pour réviser au bon moment.
+              </p>
+            </div>
+            <Link to="/etudiant/inscription" className="btn-primary mt-auto min-h-[56px] text-lg">Commencer</Link>
+          </article>
+          <article className="flex flex-col gap-5 card lp-card" style={{ '--d': '.95s' } as CSSProperties}>
+            <LivePreview />
+            <div>
+              <p className="text-sm font-bold tracking-wider uppercase text-brand-dark">Enseignant</p>
+              <h2 className="mt-1 text-3xl font-extrabold">Live</h2>
+              <p className="mt-2 text-lg leading-relaxed text-ink-soft">
+                Créez un quiz, partagez le code et laissez toute la classe répondre en direct sur téléphone, avec classement en temps réel et correction expliquée.
+              </p>
+            </div>
+            <Link to="/enseignant/inscription" className="btn-primary mt-auto min-h-[56px] text-lg">Commencer</Link>
+          </article>
+        </section>
 
-          {open && (
-            <form id="join-form" onSubmit={join} noValidate className="mt-4 max-w-md rounded-3xl border border-line bg-card p-4 shadow-lg animate-rise"
-              onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}>
+        {/* Rejoindre une session en classe sans compte */}
+        <section className="flex flex-col items-center gap-3 mt-10 text-center lp-fade lg:mt-14" style={{ '--d': '1.4s' } as CSSProperties}>
+          {!codeOpen ? (
+            <button type="button" className="text-base font-semibold underline text-ink-soft underline-offset-4 hover:text-ink" onClick={() => setCodeOpen(true)}>J’ai un code de session</button>
+          ) : (
+            <form onSubmit={join} noValidate className="w-full max-w-sm animate-rise" onKeyDown={(e) => e.key === 'Escape' && setCodeOpen(false)}>
               <label htmlFor="session-code" className="label">Code de session</label>
               <div className="flex gap-2">
-                <input id="session-code" ref={input} className={`field min-h-[52px] flex-1 text-center text-2xl font-extrabold uppercase tracking-[.25em] ${error ? 'field-error' : ''}`}
+                <input id="session-code" autoFocus className={`field min-h-[52px] flex-1 text-center text-2xl font-extrabold uppercase tracking-[.25em] ${error ? 'field-error' : ''}`}
                   value={code} maxLength={8} autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false} enterKeyHint="go" placeholder="ABC123"
                   aria-invalid={!!error} aria-describedby={error ? 'session-error' : undefined}
                   onChange={(e) => { setCode(cleanCode(e.target.value)); setError('') }} />
-                <button className="btn-dark min-h-[52px] px-5" disabled={busy}>{busy ? 'Vérification…' : 'Rejoindre'}</button>
+                <button className="btn-dark min-h-[52px] px-5" disabled={busy}>{busy ? '…' : 'Rejoindre'}</button>
               </div>
               {error && <p id="session-error" role="alert" className="mt-2 text-base font-semibold text-bad">{error}</p>}
             </form>
           )}
-
-          <p className="mt-6 text-lg font-bold text-ink">Un téléphone. Un code. C’est parti.</p>
         </section>
-
-        <Preview />
       </main>
 
-      <footer className="relative mx-auto w-full max-w-6xl border-t border-line pt-4 text-center text-sm leading-relaxed text-ink-soft lg:text-left">
+      <footer className="relative w-full max-w-5xl pt-4 mx-auto text-sm leading-relaxed text-center border-t border-line text-ink-soft lg:text-left">
         <p className="font-semibold text-ink">Une solution eUniversité — Votre Campus Connecté</p>
         <p>GENIUS GROUPS SAS · Section EduTech</p>
       </footer>
@@ -88,46 +118,41 @@ export default function Landing() {
   )
 }
 
-/** Illustration d'interface en HTML/CSS : purement décorative, signalée comme aperçu. */
-function Preview() {
-  const answers = [['A', 'Réponse A', true], ['B', 'Réponse B', false], ['C', 'Réponse C', false]] as const
+/** Aperçu d'une question de quiz en HTML/CSS : purement décoratif. */
+function LivePreview() {
   return (
-    <div className="relative mx-auto hidden w-full max-w-md animate-rise lg:block" role="img" aria-label="Aperçu d’une question de quiz avec trois réponses et un classement">
-      {/* Carte d'arrière-plan pour la profondeur */}
-      <div aria-hidden className="absolute inset-0 -rotate-3 rounded-[2rem] border border-line bg-brand-soft/70" />
-      <span className="absolute -top-3 right-2 z-20 rounded-full bg-ink px-3 py-1 text-xs font-bold uppercase tracking-wider text-white shadow">Aperçu</span>
-
-      <div className="relative rotate-2 space-y-4 rounded-[2rem] border border-line bg-card p-6 shadow-[0_24px_60px_-20px_rgba(38,38,43,.4)]" aria-hidden>
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-sm font-semibold text-ink-soft"><span>Question 1</span><span>20 s</span></div>
-          <div className="h-2.5 overflow-hidden rounded-full bg-line"><div className="h-full w-2/3 rounded-full bg-brand" /></div>
-        </div>
-        <div className="space-y-2"><div className="h-4 w-11/12 rounded-full bg-ink/80" /><div className="h-4 w-7/12 rounded-full bg-ink/80" /></div>
-        <div className="space-y-2.5">
-          {answers.map(([l, t, sel]) => (
-            <div key={l} className={`flex items-center gap-3 rounded-2xl border-2 px-3 py-3 ${sel ? 'border-brand bg-brand-soft shadow-sm' : 'border-line bg-card'}`}>
-              <span className={`grid h-9 w-9 place-items-center rounded-xl font-extrabold ${sel ? 'bg-brand text-ink' : 'bg-paper text-ink-soft'}`}>{l}</span>
-              <span className="flex-1 font-semibold">{t}</span>
-              {sel && <svg viewBox="0 0 24 24" className="h-6 w-6 text-ok" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>}
-            </div>
-          ))}
-        </div>
-        <div className="rounded-2xl bg-paper p-3">
-          <p className="mb-2 text-xs font-bold uppercase tracking-wider text-ink-soft">Classement</p>
-          {[['1', 'w-full'], ['2', 'w-4/5'], ['3', 'w-3/5']].map(([r, w]) => (
-            <div key={r} className="flex items-center gap-2 py-1">
-              <span className="grid h-6 w-6 place-items-center rounded-full bg-brand text-xs font-extrabold">{r}</span>
-              <div className="h-2.5 flex-1 rounded-full bg-line"><div className={`h-full rounded-full bg-ink/70 ${w}`} /></div>
-            </div>
-          ))}
-        </div>
+    <div className="relative w-full max-w-sm mx-auto" role="img" aria-label="Aperçu d’une question de quiz avec trois réponses">
+      <div aria-hidden className="lp-layer-back absolute inset-0 rounded-[2rem] border border-line bg-brand-soft/70" style={{ '--r': '-3deg' } as CSSProperties} />
+      <div className="lp-layer-front relative space-y-3 rounded-[2rem] border border-line bg-card p-5 shadow-[0_24px_60px_-20px_rgba(38,38,43,.35)]" aria-hidden style={{ '--r2': '1deg' } as CSSProperties}>
+        <div className="h-2.5 overflow-hidden rounded-full bg-line"><div className="w-full h-full rounded-full lp-progress bg-brand" /></div>
+        <div className="space-y-2"><div className="h-3.5 w-11/12 rounded-full bg-ink/80" /><div className="h-3.5 w-6/12 rounded-full bg-ink/80" /></div>
+        {(['A', 'B', 'C'] as const).map((l, i) => (
+          <div key={l} className="lp-pick flex items-center gap-3 rounded-2xl border-2 border-line bg-card px-3 py-2.5" style={{ '--k': i } as CSSProperties}>
+            <span className={`grid h-8 w-8 place-items-center rounded-xl font-extrabold ${i === 0 ? 'bg-brand text-ink' : 'bg-paper text-ink-soft'}`}>{l}</span>
+            <div className="flex-1 h-3 rounded-full bg-line" />
+          </div>
+        ))}
       </div>
+    </div>
+  )
+}
 
-      {/* Pastilles flottantes */}
-      <div aria-hidden className="absolute -left-8 top-16 z-20 animate-float rounded-2xl border border-line bg-card px-4 py-2 font-extrabold text-ok shadow-lg">+10 pts</div>
-      <div aria-hidden className="absolute -right-6 bottom-24 z-20 flex animate-float items-center gap-2 rounded-2xl border border-line bg-card px-4 py-2 font-bold shadow-lg [animation-delay:1.2s]">
-        <svg viewBox="0 0 24 24" className="h-5 w-5 text-ok" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
-        Réponse enregistrée
+/** Aperçu de Study sans personnage : la question et les trois portes-réponses, en HTML/CSS décoratif. */
+function StudyPreview() {
+  return (
+    <div className="relative w-full max-w-sm mx-auto" role="img" aria-label="Aperçu de Study : une question et trois portes à choisir">
+      <div aria-hidden className="lp-layer-back absolute inset-0 rounded-[2rem] border border-line bg-brand-soft/70" style={{ '--r': '2deg' } as CSSProperties} />
+      <div className="lp-layer-front relative rounded-[2rem] border border-line bg-card p-5 shadow-[0_24px_60px_-20px_rgba(38,38,43,.35)]" aria-hidden style={{ '--r2': '-1deg' } as CSSProperties}>
+        <div className="mb-4 space-y-2"><div className="h-3.5 w-10/12 rounded-full bg-ink/80" /><div className="h-3.5 w-5/12 rounded-full bg-ink/80" /></div>
+        <div className="grid items-end grid-cols-3 gap-3">
+          {(['A', 'B', 'C'] as const).map((l, i) => (
+            <div key={l} className={`flex flex-col items-center ${i === 1 ? 'lp-door-open' : 'lp-door'}`} style={{ '--k': i } as CSSProperties}>
+              <div className={`grid w-full place-items-center rounded-t-2xl border-2 border-ink text-3xl font-extrabold text-ink ${i === 1 ? 'h-28 bg-brand' : 'h-24 bg-brand/80'}`}>{l}</div>
+              <div className="w-full h-2 rounded-b bg-ink/70" />
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-line"><div className="w-full h-full rounded-full lp-progress bg-brand" /></div>
       </div>
     </div>
   )
