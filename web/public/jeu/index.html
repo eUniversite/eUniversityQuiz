@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Course des savoirs · eUniversité Study</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600&display=swap" />
+  <style>
+    /* Un seul langage visuel : contours fins, ombres légères, texte en graisse moyenne, titres en semi-gras. */
+    :root {
+      --ink: #19150E; --cream: #FFF7E8; --paper: #fff; --orange: #FF9F0A; --gold: #FFC93C;
+      --ok: #2f9e5b; --ko: #d6453d; --navy: #1d2a5b; --muted: #6f644f; --heart: #ff4d6d;
+      --bd: 2px solid var(--ink); --r: 14px; --sh: 0 3px 0 var(--ink);
+      --font: 'Fredoka', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; font-family: var(--font); font-weight: 500; color: var(--ink); background: var(--ink); -webkit-user-select: none; user-select: none; }
+    button { font-family: inherit; }
+    canvas#scene { width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+    [hidden] { display: none !important; }
+    .t { font-weight: 600; }
+
+    .panel { background: var(--cream); border: var(--bd); border-radius: var(--r); box-shadow: var(--sh); }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 24px; cursor: pointer;
+      font: 600 18px/1 var(--font); color: var(--ink); background: var(--orange); border: var(--bd); border-radius: var(--r); box-shadow: var(--sh);
+      transition: transform .08s, box-shadow .08s, filter .15s;
+    }
+    a.btn { text-decoration: none; }
+    #loading.failed .course { display: none; }
+    .btn:hover { filter: brightness(1.05); transform: translateY(-1px); box-shadow: 0 4px 0 var(--ink); }
+    .btn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+    .btn.alt { background: var(--paper); }
+    .btn:focus-visible, .answer:focus-visible, .who:focus-visible { outline: 3px solid var(--navy); outline-offset: 2px; }
+
+    /* ===== Chargement ===== */
+    #loading { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: var(--navy); color: #fff; transition: opacity .45s; }
+    #loading.done { opacity: 0; pointer-events: none; }
+    #loading .box { width: min(420px, 100%); text-align: center; }
+    #loading .logo { font-size: 64px; line-height: 1; animation: ld-bob 1.2s ease-in-out infinite; }
+    #loading h1 { margin: 10px 0 2px; font-size: 28px; font-weight: 600; }
+    #loading .course { margin: 0 0 22px; opacity: .7; font-size: 16px; }
+    #loading .bar { height: 16px; border: 2px solid #fff; border-radius: 10px; overflow: hidden; background: rgba(255,255,255,.12); }
+    #loading .bar i { display: block; height: 100%; width: 0; background: var(--gold); border-radius: 8px; }
+    #loading .row { display: flex; justify-content: space-between; margin-top: 10px; font-size: 15px; }
+    #loading .tip { margin-top: 26px; min-height: 44px; font-size: 15px; line-height: 1.4; opacity: .85; }
+    #loading .err { display: none; margin-top: 8px; }
+    #loading.failed .err { display: block; }
+    #loading.failed .bar, #loading.failed .row, #loading.failed .tip { display: none; }
+    #loading.failed .logo { animation: none; }
+    #loading .err p { margin: 0 0 16px; line-height: 1.45; }
+    @keyframes ld-bob { 50% { transform: translateY(-8px) rotate(-4deg); } }
+
+    /* ===== HUD : une seule carte (mission, protections, série, livres, XP, piste) ===== */
+    #top { position: fixed; z-index: 10; top: calc(10px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: min(760px, calc(100% - 20px)); pointer-events: none; }
+    .hudcard { padding: 12px 16px 10px; display: grid; gap: 10px; background: rgba(255, 247, 232, .94); }
+    .hud-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 36px; }
+    .mission { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .mission .no { flex: none; padding: 3px 9px; border-radius: 8px; background: var(--ink); color: var(--cream); font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
+    .mission .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; font-weight: 600; }
+    .stats { display: flex; align-items: center; gap: 6px; flex: none; }
+    .stat { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 10px; border-radius: 10px; background: rgba(25, 21, 14, .07); font-size: 16px; font-weight: 600; }
+    .stat.streak { color: #c4570a; } .stat.streak[data-n="0"], .stat.streak[data-n="1"] { opacity: .5; }
+    .stat.bump { animation: bump .35s; }
+    @keyframes bump { 40% { transform: scale(1.15); } }
+    .heart { width: 22px; height: 22px; display: block; margin: 0 -1px; }
+    .heart path { fill: var(--heart); stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; }
+    .heart.lost path { fill: rgba(25, 21, 14, .12); }
+    .heart.hit { animation: heartHit .6s; }
+    @keyframes heartHit { 25% { transform: scale(1.4) rotate(-10deg); } 60% { transform: scale(.75); } }
+    .trail { position: relative; height: 30px; margin: 0 14px; }
+    .trail::before { content: ''; position: absolute; left: 0; right: 0; top: 12px; height: 6px; border-radius: 4px; background: rgba(25, 21, 14, .14); }
+    .trail .fill { position: absolute; left: 0; top: 12px; height: 6px; width: 0; border-radius: 4px; background: var(--gold); }
+    .trail .node { position: absolute; top: 4px; width: 22px; height: 22px; margin-left: -11px; border-radius: 50%; background: var(--paper); border: var(--bd); display: grid; place-items: center; font-size: 11px; font-weight: 600; }
+    .trail .node.ok { background: var(--ok); border-color: var(--ok); color: #fff; animation: bump .4s; }
+    .trail .node.ko { background: var(--ko); border-color: var(--ko); color: #fff; animation: bump .4s; }
+    .trail .node.finish { width: 26px; height: 26px; margin-left: -13px; top: 2px; border-radius: 8px; background: var(--gold); font-size: 13px; }
+    .trail .runner { position: absolute; top: -2px; width: 28px; margin-left: -14px; text-align: center; font-size: 20px; line-height: 30px; transition: left .2s linear; pointer-events: none; }
+
+    #sound { position: fixed; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 30; width: 44px; height: 44px; font-size: 18px; cursor: pointer; background: var(--cream); border: var(--bd); border-radius: 12px; box-shadow: var(--sh); }
+    #sound:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+    #hint { display: none; }
+
+    /* ===== Stickers, annonces, compte à rebours ===== */
+    #pops { position: fixed; inset: 0; pointer-events: none; z-index: 40; overflow: hidden; }
+    .pop { position: absolute; left: 50%; top: 36%; transform: translateX(-50%); font-weight: 600; font-size: clamp(30px, 6vw, 52px); white-space: nowrap; color: var(--gold); -webkit-text-stroke: 2.5px var(--ink); paint-order: stroke fill; text-shadow: 0 3px 0 var(--ink); animation: popUp 1.2s cubic-bezier(.2, .9, .3, 1) forwards; }
+    .pop.ko { color: #ff7b72; }
+    .pop.small { font-size: clamp(22px, 4vw, 32px); top: 44%; }
+    @keyframes popUp { 0% { opacity: 0; transform: translate(-50%, 24px) scale(.5); } 18% { opacity: 1; transform: translate(-50%, 0) scale(1.1); } 30% { transform: translate(-50%, 0) scale(1); } 100% { opacity: 0; transform: translate(-50%, -64px); } }
+
+    #countdown { position: fixed; inset: 0; z-index: 35; display: none; place-items: center; align-content: center; gap: 18px; pointer-events: none; background: radial-gradient(circle, rgba(25,21,14,.15), rgba(25,21,14,.5)); }
+    #countdown.on { display: grid; }
+    #countdown .num { font-size: clamp(120px, 26vw, 250px); font-weight: 600; line-height: .9; color: #fff; -webkit-text-stroke: 6px var(--ink); paint-order: stroke fill; text-shadow: 0 7px 0 var(--ink); animation: cd .8s ease-out forwards; }
+    #countdown .num.go { color: var(--gold); }
+    #countdown .ctrl { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 0 16px; }
+    #countdown .ctrl span { padding: 7px 14px; border-radius: 12px; background: var(--cream); border: var(--bd); font-size: 16px; font-weight: 500; }
+    #countdown .ctrl b { font-weight: 600; }
+    @keyframes cd { 0% { transform: scale(2.2); opacity: 0; } 25% { transform: scale(1); opacity: 1; } 80% { opacity: 1; } 100% { transform: scale(.85); opacity: 0; } }
+    #splash { position: fixed; left: 0; right: 0; top: 24%; z-index: 34; pointer-events: none; display: flex; justify-content: center; }
+    #splash .band { width: 100%; padding: 12px 24px 14px; text-align: center; background: var(--ink); color: var(--cream); border-block: 3px solid var(--orange); animation: band 2.2s cubic-bezier(.2, .9, .3, 1) forwards; }
+    #splash small { display: block; font-size: 13px; letter-spacing: .3em; text-transform: uppercase; color: var(--orange); }
+    #splash b { display: block; font-size: clamp(24px, 5vw, 40px); font-weight: 600; }
+    @keyframes band { 0% { transform: translateX(-100%); } 15%, 80% { transform: none; } 100% { transform: translateX(100%); } }
+
+    #banner { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); width: min(620px, calc(100% - 32px)); padding: 12px 16px; pointer-events: none; font-size: 16px; line-height: 1.4; }
+    #banner.ok { background: #e6f6ea; } #banner.ko { background: #fde8e4; }
+    #banner .headline { font-size: 18px; font-weight: 600; margin-bottom: 2px; }
+    #banner.ok .headline { color: var(--ok); } #banner.ko .headline { color: var(--ko); }
+    #banner .source { display: block; margin-top: 6px; font-size: 13px; color: var(--muted); }
+    #flash { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, rgba(214,69,61,0) 40%, rgba(214,69,61,.5) 100%); }
+    #flash.on { animation: flash .5s ease-out; }
+    @keyframes flash { from { opacity: 1; } to { opacity: 0; } }
+
+    /* ===== Question et choix du personnage ===== */
+    .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(25, 21, 14, .55); }
+    .overlay.quiz { z-index: 20; align-items: flex-start; overflow: auto; padding: clamp(10px, 4vh, 36px) 14px 14px; background: linear-gradient(180deg, rgba(25,21,14,.6), rgba(25,21,14,.32) 62%, rgba(25,21,14,.05)); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+    .sheet { width: min(860px, 100%); margin: 0 auto; background: var(--cream); border: var(--bd); border-radius: 18px; box-shadow: 0 4px 0 var(--ink); text-align: center; overflow: hidden; animation: pop .26s cubic-bezier(.2, 1.3, .4, 1); padding-bottom: clamp(14px, 2.4vw, 22px); }
+    @keyframes pop { from { transform: scale(.94) translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
+    #q-meta, #s-meta { padding: 10px 14px; background: var(--orange); border-bottom: var(--bd); font-size: clamp(12px, 2vw, 14px); font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }
+    .sheet { position: relative; }
+    #q-timer { position: relative; height: 8px; background: rgba(25, 21, 14, .1); border-bottom: var(--bd); }
+    #q-timer i { position: absolute; inset: 0 auto 0 0; width: 100%; background: var(--ok); }
+    #q-timer.low i { background: var(--ko); }
+    .q-clock { position: absolute; right: 12px; top: 8px; z-index: 1; min-width: 44px; height: 44px; padding: 0 8px; display: grid; place-items: center; border-radius: 50%; background: var(--paper); border: var(--bd); font-size: 20px; font-weight: 600; box-shadow: var(--sh); }
+    .q-clock.low { background: var(--ko); border-color: var(--ink); color: #fff; animation: clockPulse 1s ease-in-out infinite; }
+    @keyframes clockPulse { 50% { transform: scale(1.12); } }
+    #q-text { padding: clamp(14px, 3vw, 24px) clamp(14px, 3vw, 28px) clamp(10px, 2vw, 16px); font-size: clamp(22px, 4.2vw, 38px); font-weight: 600; line-height: 1.2; }
+    #q-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(10px, 2vw, 14px); padding: 0 clamp(12px, 2.4vw, 20px); }
+    .answer { cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 10px; padding: clamp(12px, 2vw, 16px); color: var(--ink); background: var(--paper); border: var(--bd); border-radius: 12px; box-shadow: var(--sh); font-size: clamp(16px, 2.2vw, 22px); font-weight: 500; line-height: 1.25; transition: transform .08s, box-shadow .08s, background .08s; }
+    .answer:hover { background: #fff1cc; transform: translateY(-1px); box-shadow: 0 4px 0 var(--ink); }
+    .answer:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+    .answer .tag { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    .answer .chip { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; border: var(--bd); background: var(--orange); color: var(--ink); font-size: 18px; font-weight: 600; }
+    #q-hint { margin-top: clamp(10px, 1.6vw, 14px); font-size: 13px; color: var(--muted); }
+    @media (max-width: 760px) { #q-options { grid-template-columns: 1fr; } .answer { flex-direction: row; align-items: center; } .answer .tag span:last-child { display: none; } }
+
+    #select .sheet { width: min(620px, 100%); }
+    #s-cards { display: flex; gap: clamp(10px, 2vw, 16px); justify-content: center; padding: clamp(14px, 3vw, 22px) clamp(12px, 2.4vw, 20px) clamp(10px, 2vw, 14px); }
+    .who { flex: 1 1 0; max-width: 260px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 8px 12px; cursor: pointer; color: var(--ink); background: var(--paper); border: var(--bd); border-radius: 12px; box-shadow: var(--sh); transition: transform .08s, background .08s; }
+    .who img { width: 100%; max-height: min(36vh, 260px); object-fit: contain; }
+    .who b { font-size: clamp(18px, 3vw, 24px); font-weight: 600; }
+    .who span { font-size: 13px; color: var(--muted); }
+    .who:hover { transform: translateY(-1px); }
+    .who.on { background: #ffe9b8; border-color: var(--ink); outline: 3px solid var(--orange); outline-offset: 1px; }
+    #select .btn { margin-top: 4px; padding: 0 44px; min-height: 52px; font-size: 20px; }
+
+    #pause .panel { padding: 22px 30px; text-align: center; font-size: 18px; } #pause h2 { margin: 0 0 6px; font-size: 26px; font-weight: 600; }
+
+    /* ===== Écran de fin ===== */
+    #bilan { z-index: 50; overflow: auto; align-items: flex-start; background: rgba(25, 21, 14, .7); backdrop-filter: blur(4px); }
+    #confetti { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 60; pointer-events: none; }
+    .end { position: relative; width: min(520px, 100%); margin: auto; padding-bottom: 20px; overflow: hidden; text-align: center; background: var(--cream); border: var(--bd); border-radius: 20px; box-shadow: 0 5px 0 var(--ink); animation: pop .4s cubic-bezier(.2, 1.3, .4, 1); }
+    .hero { padding: 22px 16px 16px; background: var(--orange); border-bottom: var(--bd); }
+    #bilan.lost .hero { background: #d8d2c4; }
+    .hero .badge { width: 84px; height: 84px; margin: 0 auto 8px; display: grid; place-items: center; font-size: 46px; border-radius: 50%; background: var(--cream); border: var(--bd); animation: badge .8s cubic-bezier(.2, 1.6, .4, 1) both; }
+    @keyframes badge { from { transform: scale(0) rotate(-30deg); } to { transform: none; } }
+    .hero h2 { margin: 0; font-size: clamp(26px, 6vw, 34px); font-weight: 600; line-height: 1.1; }
+    .hero .sub { margin: 6px 0 0; font-size: 17px; opacity: .8; }
+    .stars { display: flex; justify-content: center; align-items: flex-end; gap: 6px; padding: 22px 0 6px; }
+    .star { width: clamp(60px, 15vw, 82px); height: auto; transform: scale(.2) rotate(-40deg); opacity: 0; }
+    .star path { fill: rgba(25, 21, 14, .1); stroke: var(--ink); stroke-width: 2.4; stroke-linejoin: round; }
+    .star.on { animation: starIn .55s cubic-bezier(.2, 1.6, .4, 1) forwards; } .star.on path { fill: var(--gold); }
+    .star.off { transform: none; opacity: 1; } .star:nth-child(2) { margin-bottom: 12px; }
+    @keyframes starIn { from { transform: scale(.2) rotate(-40deg); opacity: 0; } to { transform: none; opacity: 1; } }
+    .xpbig { font-size: clamp(40px, 10vw, 56px); font-weight: 600; line-height: 1.1; } .xpbig small { margin-left: 6px; font-size: .38em; letter-spacing: .1em; }
+    #levelup { display: inline-block; margin: 8px 0 0; padding: 6px 16px; border-radius: 999px; background: var(--ink); color: var(--gold); border: var(--bd); font-size: 17px; font-weight: 600; animation: pop .5s cubic-bezier(.2, 1.6, .4, 1); }
+    .lvline { display: flex; align-items: center; gap: 10px; margin: 18px 28px 0; }
+    .lvline .lvl { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--gold); border: var(--bd); font-size: 18px; font-weight: 600; }
+    .lvline .track { flex: 1; height: 14px; border-radius: 9px; border: var(--bd); background: var(--paper); overflow: hidden; }
+    .lvline .track i { display: block; height: 100%; width: 0; background: var(--orange); transition: width 1.2s cubic-bezier(.2, 1, .3, 1); }
+    .medals { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 16px 16px 0; }
+    .medal { min-width: 96px; padding: 8px 12px; background: var(--paper); border: var(--bd); border-radius: 12px; }
+    .medal b { display: block; font-size: 20px; font-weight: 600; } .medal span { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    #unlock { margin: 12px 16px 0; padding: 8px 12px; border-radius: 12px; background: #e6f6ea; border: 2px solid var(--ok); font-size: 16px; font-weight: 600; color: #1f6f40; }
+    .save-note { margin: 12px 18px 0; min-height: 1.2em; font-size: 14px; color: var(--muted); }
+    .review { margin: 16px 22px 0; text-align: left; } .review summary { cursor: pointer; font-size: 15px; font-weight: 600; padding: 8px 0; }
+    .results { list-style: none; margin: 0; padding: 0; } .results li { padding: 7px 0; border-bottom: 1px solid rgba(25, 21, 14, .12); font-size: 15px; line-height: 1.35; } .results .ko { color: var(--ink); } .results small { display: block; margin-top: 4px; color: var(--muted); font-size: 13px; font-style: italic; line-height: 1.35; }
+    .actions { display: grid; gap: 12px; margin: 22px 22px 0; }
+    .actions .row { display: flex; gap: 10px; } .actions .row .btn { flex: 1; padding: 0 12px; }
+    @media (prefers-reduced-motion: reduce) { .q-clock.low, .pop, #countdown .num, #splash .band, .star.on, .hero .badge, #loading .logo { animation-duration: .01s; } }
+  </style>
+</head>
+<body>
+  <canvas id="scene" tabindex="0"></canvas>
+  <div id="flash"></div>
+
+  <div id="top">
+    <div class="hudcard panel">
+      <div class="hud-row">
+        <div class="mission"><span class="no" id="mission-no">Mission 1</span><span class="nm" id="mission-name"></span></div>
+        <div class="stats">
+          <span class="stat" id="lives" role="img" aria-label="Protections"></span>
+          <span class="stat" id="xp-chip" title="Expérience gagnée"><span id="xp-num">0</span> XP</span>
+          <span class="stat streak" id="streak" data-n="0" title="Série de bonnes réponses" hidden>🔥 <span id="streak-n">×0</span></span>
+          <span class="stat" id="books" title="Livres ramassés">📖 <span id="coins">0</span></span>
+        </div>
+      </div>
+      <div class="trail" id="trail"><div class="fill" id="trail-fill"></div><div class="runner" id="runner">🏃</div></div>
+    </div>
+  </div>
+  <div id="pops"></div>
+  <div id="countdown"></div>
+  <div id="splash" hidden><div class="band"><small id="splash-no"></small><b id="splash-name"></b></div></div>
+
+  <button id="sound" type="button" aria-label="Couper le son">🔊</button>
+  <div id="banner" class="panel" hidden></div>
+
+  <div id="quiz" class="overlay quiz" hidden>
+    <div class="sheet">
+      <div id="q-meta"></div>
+      <div id="q-timer" aria-hidden="true"><i id="q-timer-fill"></i></div>
+      <div class="q-clock" id="q-clock" role="timer" aria-label="Temps restant">18</div>
+      <div id="q-text"></div>
+      <div id="q-options"></div>
+      <div id="q-hint">Touchez une réponse · ou touches 1, 2, 3</div>
+    </div>
+  </div>
+
+  <div id="select" class="overlay quiz" hidden>
+    <div class="sheet">
+      <div id="s-meta">Choisis ton étudiant</div>
+      <div id="s-cards">
+        <button class="who" data-who="boy" type="button"><img src="assets/portrait-boy.png" alt="" /><b>Kofi</b><span>Toge marine · étole orange</span></button>
+        <button class="who" data-who="girl" type="button"><img src="assets/portrait-girl.png" alt="" /><b>Ama</b><span>Tee-shirt Genius Pay · twists</span></button>
+      </div>
+      <button class="btn" id="select-go" type="button">Jouer</button>
+      <div id="q-hint">Touchez un personnage · ou touches 1, 2 · Entrée pour jouer</div>
+    </div>
+  </div>
+
+  <div id="pause" class="overlay" hidden><div class="panel"><h2>Pause</h2>Appuyez sur P pour reprendre.</div></div>
+
+  <canvas id="confetti" hidden></canvas>
+  <div id="bilan" class="overlay" hidden>
+    <div class="end">
+      <div class="hero"><div class="badge" id="bilan-badge">🎓</div><h2 id="bilan-title"></h2><p class="sub" id="bilan-sub"></p></div>
+      <div class="stars" id="stars"></div>
+      <div class="xpbig"><span id="bilan-xp">0</span><small>XP</small></div>
+      <div id="levelup" hidden></div>
+      <div class="lvline"><span class="lvl" id="bilan-lvl">1</span><div class="track"><i id="bilan-lvfill"></i></div></div>
+      <div id="unlock" hidden></div>
+      <p class="save-note" id="save-note"></p>
+      <details class="review" id="review" hidden><summary id="review-sum">À revoir</summary><ul class="results" id="bilan-list"></ul></details>
+      <div class="actions">
+        <button class="btn" id="bilan-next" type="button" hidden>Mission suivante</button>
+        <div class="row">
+          <button class="btn alt" id="bilan-restart" type="button">Rejouer</button>
+          <button class="btn alt" id="bilan-back" type="button" hidden>Retour à la carte</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Écran de chargement : progression réelle (téléchargement du jeu, puis étapes de construction), erreurs lisibles, nouvel essai. -->
+  <div id="loading" role="status" aria-live="polite">
+    <div class="box">
+      <div class="logo" aria-hidden="true">🏃</div>
+      <h1>Course des savoirs</h1>
+      <p class="course" id="ld-course">eUniversité Study</p>
+      <div class="bar" aria-hidden="true"><i id="loading-bar"></i></div>
+      <div class="row"><span id="ld-label">Démarrage…</span><span id="ld-pct">0 %</span></div>
+      <p class="tip" id="ld-tip"></p>
+      <div class="err">
+        <p id="ld-err"></p>
+        <button class="btn" id="ld-retry" type="button">Réessayer</button>
+        <a class="btn" id="ld-link" href="/etudiant" hidden>Retour</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var $ = function (id) { return document.getElementById(id); };
+      var bar = $('loading-bar'), label = $('ld-label'), pctEl = $('ld-pct'), root = $('loading');
+      var shown = 0, target = 0, raf = 0, finished = false, failed = false;
+      var TIPS = ['↑ pour sauter par-dessus les piles de livres.', '↓ pour glisser sous les banderoles.', 'Une bonne réponse ouvre la porte et accélère ta course.',
+        'Enchaîne les bonnes réponses : la série rapporte de l’XP en plus.', 'Une mauvaise porte coûte une protection. Tu en as trois.', 'Sur mobile, glisse le doigt pour changer de voie, sauter ou glisser.'];
+      var ti = Math.floor(Math.random() * TIPS.length);
+      function tip() { $('ld-tip').textContent = 'Astuce · ' + TIPS[ti++ % TIPS.length]; }
+      tip(); var tipTimer = setInterval(tip, 3800);
+
+      function paint() {
+        shown += (target - shown) * 0.12; if (target - shown < 0.3) shown = target;
+        bar.style.width = shown + '%'; pctEl.textContent = Math.round(shown) + ' %';
+        if (shown < target) raf = requestAnimationFrame(paint);
+        else if (finished) { clearInterval(tipTimer); root.classList.add('done'); setTimeout(function () { root.hidden = true; }, 500); }
+      }
+      function set(p, t) { target = Math.max(target, Math.min(100, p)); if (t) label.textContent = t; cancelAnimationFrame(raf); raf = requestAnimationFrame(paint); }
+      window.__loading = function (p, t) { set(p, t); if (p >= 100) finished = true; };
+      if (new URLSearchParams(location.search).get('course')) $('ld-course').textContent = 'Ton parcours se prépare';
+
+      function fail(msg, href, label) {
+        clearInterval(tipTimer); cancelAnimationFrame(raf);
+        $('ld-err').textContent = msg; root.hidden = false; root.classList.remove('done'); root.classList.add('failed'); root.querySelector('.logo').textContent = '😕';
+        // Avec un lien de retour (partie impossible à lancer), « Réessayer » n'a pas de sens.
+        $('ld-link').hidden = !href; $('ld-retry').hidden = !!href;
+        if (href) { $('ld-link').href = href; $('ld-link').textContent = label || 'Retour'; }
+      }
+      window.__fail = function (msg, href, label) { failed = true; fail(msg, href, label); };
+      $('ld-retry').addEventListener('click', function () { location.reload(); });
+
+      // Téléchargement du jeu (un seul fichier local, moteur 3D compris) avec progression ; abandon si plus rien n'arrive pendant 25 s.
+      async function boot() {
+        set(3, 'Téléchargement du jeu…');
+        var ctl = new AbortController(), stall;
+        var kick = function () { clearTimeout(stall); stall = setTimeout(function () { ctl.abort(); }, 25000); };
+        try {
+          kick();
+          var res = await fetch('./game.bundle.js', { signal: ctl.signal, cache: 'reload' });
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          var total = +res.headers.get('content-length') || 6.3e6, got = 0, rd = res.body.getReader(), chunks = [];
+          for (;;) { var r = await rd.read(); if (r.done) break; chunks.push(r.value); got += r.value.length; kick(); set(3 + 62 * Math.min(1, got / total)); }
+          clearTimeout(stall);
+          set(66, 'Démarrage du jeu…');
+          // On exécute exactement les octets qui viennent d'être téléchargés (jamais une ancienne copie gardée en cache).
+          var url = URL.createObjectURL(new Blob(chunks, { type: 'text/javascript' }));
+          await import(url);
+        } catch (e) {
+          clearTimeout(stall);
+          if (e && e.handled) return;                      // erreur déjà affichée par le jeu (ex. rien à réviser)
+          var m = String(e && e.message || e);
+          console.error('Démarrage du jeu :', e);
+          var where = (String(e && e.stack || '').split('\n').filter(function (l) { return /:\d+:\d+/.test(l); })[0] || '').replace(/^.*\//, '').slice(0, 60);
+          var ver = ' [build ' + (window.__build || 'non chargé') + (where ? ' · ' + where.trim() : '') + ']';
+          fail(/WebGL|context/i.test(m) ? 'Ton navigateur ne peut pas afficher la 3D (WebGL indisponible). Essaie Chrome, Edge ou Firefox à jour.'
+            : e && e.name === 'AbortError' ? 'Le téléchargement est trop lent ou s’est interrompu. Vérifie ta connexion, puis réessaie.'
+            : 'Le jeu n’a pas pu démarrer (' + m.slice(0, 80) + '). Vérifie ta connexion, puis réessaie.' + ver);
+        }
+      }
+      window.addEventListener('unhandledrejection', function (e) { if (!finished && !failed && !(e.reason && e.reason.handled)) fail('Le jeu a rencontré un problème au démarrage (' + String(e.reason && e.reason.message || e.reason).slice(0, 80) + ').'); });
+      boot();
+    })();
+  </script>
+</body>
+</html>
