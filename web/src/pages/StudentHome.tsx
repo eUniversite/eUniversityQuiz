@@ -30,7 +30,10 @@ export default function StudentHome() {
     <div className="gm mx-auto min-h-dvh max-w-xl px-6 py-8">
       <header className="flex items-center justify-between">
         <Link to="/etudiant"><Logo className="h-10" /></Link>
-        <button className="btn-ghost btn-sm" onClick={() => { signOut(); nav('/') }}>Déconnexion</button>
+        <div className="flex items-center gap-2">
+          <Link to="/etudiant/abonnement" className="btn-ghost btn-sm">Abonnement</Link>
+          <button className="btn-ghost btn-sm" onClick={() => { signOut(); nav('/') }}>Déconnexion</button>
+        </div>
       </header>
       {!me ? (error ? <ErrorBox>{error}</ErrorBox> : <Spinner />) : (
         <main className="mt-10 space-y-8">

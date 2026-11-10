@@ -25,6 +25,7 @@ async function loadCourse(id) {
     res = await fetch(`/api/study/courses/${encodeURIComponent(id)}/game${location.search}`, { headers: { authorization: `Bearer ${localStorage.getItem('euniv:student') || ''}` } });
   } catch { fail('Connexion impossible. Vérifiez votre réseau.'); }
   if (res.status === 401) fail('Votre session a expiré. Reconnectez-vous pour jouer.');
+  if (res.status === 402) { location.href = '/etudiant/abonnement'; return new Promise(() => {}); }
   if (res.status === 409) fail((await res.json().catch(() => ({}))).error || 'Ce parcours n’est pas encore prêt.');
   if (!res.ok) fail('Ce parcours est introuvable ou pas encore prêt.');
   const data = await res.json();

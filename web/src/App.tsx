@@ -19,6 +19,8 @@ import StudentHome from './pages/StudentHome'
 import StudyNew from './pages/StudyNew'
 import Evolution from './pages/Evolution'
 import StudyCourse from './pages/StudyCourse'
+import Subscribe from './pages/Subscribe'
+import SubscribeReturn from './pages/SubscribeReturn'
 import { studentToken, teacherToken } from './lib/api'
 
 const Private = ({ children }: { children: React.ReactElement }) => {
@@ -41,6 +43,8 @@ export default function App() {
       <Route path="/connexion" element={<Connexion />} />
       <Route path="/etudiant/inscription" element={<StudentSignup />} />
       <Route path="/etudiant" element={<PrivateStudent><StudentHome /></PrivateStudent>} />
+      <Route path="/etudiant/abonnement" element={<PrivateStudent><Subscribe /></PrivateStudent>} />
+      <Route path="/etudiant/abonnement/retour" element={<PrivateStudent><SubscribeReturn /></PrivateStudent>} />
       <Route path="/etudiant/evolution" element={<PrivateStudent><Evolution /></PrivateStudent>} />
       <Route path="/etudiant/study/nouveau" element={<PrivateStudent><StudyNew /></PrivateStudent>} />
       <Route path="/etudiant/study/:id" element={<PrivateStudent><StudyCourse /></PrivateStudent>} />

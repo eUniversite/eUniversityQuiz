@@ -36,7 +36,7 @@ export default function Connexion() {
       </div>
       <form onSubmit={submit} className="card space-y-4">
         <div><label htmlFor="email" className="label">Adresse e-mail</label><input id="email" type="email" className="field" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required /></div>
-        <div><label htmlFor="pw" className="label">Mot de passe</label><input id="pw" type="password" className="field" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></div>
+        <div><label htmlFor="pw" className="label">Mot de passe ou PIN</label><input id="pw" type="password" className="field" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></div>
         {error && <ErrorBox>{error}</ErrorBox>}
         <button className="btn-primary w-full" disabled={busy}>{busy ? 'Connexion…' : 'Se connecter'}</button>
         <div className="flex flex-wrap items-center justify-between gap-2 text-base">
