@@ -46,6 +46,54 @@ model Student {
   sessions     StudySession[]
   notionStates StudyNotionState[]
   missions     StudyMissionResult[]
+  payments      StudentPayment[]
+  subscriptions Subscription[]
+}
+
+enum Plan {
+  MONTHLY
+  YEARLY
+}
+
+enum PayStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+// Tentative de paiement d'abonnement (GeniusPay). Le montant est fixé côté serveur, jamais par le navigateur.
+model StudentPayment {
+  id          String    @id @default(uuid())
+  studentId   String
+  student     Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  plan        Plan
+  amount      Int
+  reference   String    @unique
+  gatewayRef  String?   @unique
+  checkoutUrl String?
+  status      PayStatus @default(PENDING)
+  returnedAt  DateTime?
+  paidAt      DateTime?
+  createdAt   DateTime  @default(now())
+  subscription Subscription?
+
+  @@index([studentId, status])
+  @@index([status, createdAt])
+}
+
+// Période d'accès à Study. Un paiement confirmé crée exactement une période (paymentId unique) ; les périodes s'enchaînent.
+model Subscription {
+  id        String         @id @default(uuid())
+  studentId String
+  student   Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  plan      Plan
+  startsAt  DateTime
+  endsAt    DateTime
+  paymentId String         @unique
+  payment   StudentPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+
+  @@index([studentId, endsAt])
 }
 
 enum StudyStatus {

@@ -25,6 +25,14 @@ export const config = {
   geminiBase: process.env.GEMINI_API_BASE || 'https://generativelanguage.googleapis.com/v1beta',
   studyQuestions: Number(process.env.STUDY_QUESTIONS || 8),
   studyMaxUploadMb: Number(process.env.STUDY_MAX_UPLOAD_MB || 10),
+  // Abonnement Study : paiement GeniusPay (clés sandbox pk_sandbox_… / sk_sandbox_…, puis pk_live_… / sk_live_…).
+  geniuspayKey: process.env.GENIUSPAY_API_KEY || '',
+  geniuspaySecret: process.env.GENIUSPAY_API_SECRET || '',
+  geniuspayWebhookSecret: process.env.GENIUSPAY_WEBHOOK_SECRET || '',
+  geniuspayBase: (process.env.GENIUSPAY_BASE_URL || 'https://geniuspay.ci/api/v1/merchant').replace(/\/+$/, ''),
+  // Polling de secours : délai laissé au webhook (secondes) après le retour de l'étudiant, puis s'il n'est jamais revenu.
+  billingWebhookGrace: Number(process.env.BILLING_WEBHOOK_GRACE ?? 30),
+  billingUnreturnedAfter: Number(process.env.BILLING_UNRETURNED_AFTER ?? 600),
   mailFrom: process.env.MAIL_FROM || 'eUniversité Quiz <no-reply@euniversite.ci>',
 }
 

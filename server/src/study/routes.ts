@@ -6,6 +6,7 @@ import { RateLimiter } from '../security.js'
 import { extractDocument } from './extract.js'
 import { StudyError } from './gemini.js'
 import { z } from 'zod'
+import { requireSubscription } from '../billing/index.js'
 import { courseProgress, evolution, recordSession, reviewQuestions, sampleRun, studentStats } from './learn.js'
 import type { Analysis } from './pipeline.js'
 import { wakeStudyWorker } from './queue.js'
@@ -20,6 +21,7 @@ type AH = (fn: (req: Request, res: Response) => Promise<unknown>) => RequestHand
 export function buildStudyRouter(requireStudent: RequestHandler, ah: AH) {
   const r = express.Router()
   r.use(requireStudent)
+  r.use(requireSubscription)
 
   const out = (c: any) => {
     const a = c.analysis as Analysis | null

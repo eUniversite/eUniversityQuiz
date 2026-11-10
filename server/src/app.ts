@@ -18,7 +18,8 @@ export async function createApp() {
     next()
   })
   app.use(compression())
-  app.use(express.json({ limit: '200kb' }))
+  // Le corps brut est conservé : la signature du webhook GeniusPay se calcule dessus.
+  app.use(express.json({ limit: '200kb', verify: (req, _res, buf) => { (req as unknown as { rawBody: Buffer }).rawBody = buf } }))
   app.use('/api', buildRouter())
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Introuvable.' }))
 

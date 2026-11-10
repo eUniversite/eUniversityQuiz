@@ -7,9 +7,11 @@ import { prisma } from './db.js'
 import { engine, EngineError } from './engine.js'
 import { RateLimiter, normalizeCode, hashToken, newToken } from './security.js'
 import { mailer, sendResetMail } from './mailer.js'
-import { emailSchema, joinSchema, loginSchema, quizSchema, resetSchema, signupSchema } from './validation.js'
+import { emailSchema, joinSchema, loginSchema, quizSchema, resetSchema, signupSchema, studentSignupSchema } from './validation.js'
 import { rankBy } from './scoring.js'
 import { buildStudyRouter } from './study/routes.js'
+import { buildBillingRouter, geniuspayWebhook } from './billing/routes.js'
+import { subscriptionOf } from './billing/index.js'
 
 declare module 'express-serve-static-core' { interface Request { teacherId?: string; teacherPwdAt?: number; studentId?: string } }
 
@@ -148,20 +150,28 @@ export function buildRouter() {
     res.status(401).json({ error: 'E-mail ou mot de passe incorrect.' })
   }))
 
-  // ---- compte étudiant (Study) ----
+  // ---- compte étudiant (Study) : e-mail + PIN à 6 chiffres (le PIN tient lieu de mot de passe) ----
+  const nameFromEmail = (email: string) => {
+    const n = email.split('@')[0].replace(/[._+-]+/g, ' ').replace(/\d+/g, '').trim() || 'Étudiant'
+    return n.replace(/\b\p{L}/gu, (c) => c.toUpperCase()).slice(0, 50)
+  }
   r.post('/student/signup', ah(async (req, res) => {
     if (!signupByIp.hit(req.ip || '?')) return res.status(429).json({ error: 'Trop de tentatives. Réessayez plus tard.' })
-    const d = signupSchema.parse(req.body)
+    const d = studentSignupSchema.parse(req.body)
     const exists = await prisma.student.findUnique({ where: { email: d.email } })
     if (exists) return res.status(409).json({ error: 'Un compte existe déjà avec cette adresse e-mail.', fields: [{ path: 'email', message: 'Un compte existe déjà avec cette adresse e-mail.' }] })
-    const s = await prisma.student.create({ data: { email: d.email, name: d.name, passwordHash: await bcrypt.hash(d.password, 12) } })
+    const s = await prisma.student.create({ data: { email: d.email, name: nameFromEmail(d.email), passwordHash: await bcrypt.hash(d.pin, 12) } })
     res.status(201).json({ role: 'student', token: signStudent(s.id), user: { id: s.id, name: s.name, email: s.email } })
   }))
   r.get('/student/me', requireStudent, ah(async (req, res) => {
     const s = await prisma.student.findUnique({ where: { id: req.studentId } })
     if (!s) return res.status(401).json({ error: 'Connexion requise.' })
-    res.json({ id: s.id, name: s.name, email: s.email })
+    res.json({ id: s.id, name: s.name, email: s.email, subscription: await subscriptionOf(s.id) })
   }))
+
+  // ---- abonnement Study (GeniusPay) ----
+  r.use('/billing', buildBillingRouter(requireStudent, ah))
+  r.post('/billing/webhook/geniuspay', geniuspayWebhook)
 
   r.use('/study', buildStudyRouter(requireStudent, ah))
 

@@ -61,3 +61,9 @@ export async function joinStudent(app: App, code: string, i: number) {
   const r = await api(app, 'POST', '/public/join', { code, fullName: `Prénom${i} Nom${i}`, nickname: `Pseudo${i}` })
   return r
 }
+
+/** Donne un abonnement en cours à un étudiant (l'accès à Study en dépend). */
+export async function subscribe(studentId: string, plan: 'MONTHLY' | 'YEARLY' = 'MONTHLY') {
+  const p = await prisma.studentPayment.create({ data: { studentId, plan, amount: plan === 'YEARLY' ? 10000 : 1000, reference: `T-${Math.random().toString(36).slice(2)}`, status: 'COMPLETED', paidAt: new Date() } })
+  return prisma.subscription.create({ data: { studentId, plan, startsAt: new Date(), endsAt: new Date(Date.now() + 30 * 86400_000), paymentId: p.id } })
+}
