@@ -7,11 +7,14 @@ import { prisma } from './db.js'
 import { engine, EngineError } from './engine.js'
 import { RateLimiter, normalizeCode, hashToken, newToken } from './security.js'
 import { mailer, sendResetMail } from './mailer.js'
-import { emailSchema, joinSchema, loginSchema, quizSchema, resetSchema, signupSchema, studentSignupSchema } from './validation.js'
+import { emailSchema, joinSchema, loginSchema, quizSchema, resetSchema, signupSchema, studentSignupSchema, googleLoginSchema } from './validation.js'
 import { rankBy } from './scoring.js'
+import { googleVerifier } from './google.js'
 import { buildStudyRouter } from './study/routes.js'
 import { buildBillingRouter, geniuspayWebhook } from './billing/routes.js'
-import { subscriptionOf } from './billing/index.js'
+import { entitlementsOf, publicLimits, subscriptionOf } from './billing/index.js'
+import { buildAdminRouter } from './admin.js'
+import { buildSsoRouter } from './sso.js'
 
 declare module 'express-serve-static-core' { interface Request { teacherId?: string; teacherPwdAt?: number; studentId?: string } }
 
@@ -38,8 +41,8 @@ export async function authenticateStudent(token: string | undefined): Promise<{ 
   let payload: { sub?: string; role?: string }
   try { payload = jwt.verify(token, config.jwtSecret) as typeof payload } catch { return null }
   if (!payload.sub || payload.role !== 'student') return null
-  const s = await prisma.student.findUnique({ where: { id: payload.sub }, select: { id: true } }).catch(() => null)
-  return s ? { id: s.id } : null
+  const s = await prisma.student.findUnique({ where: { id: payload.sub }, select: { id: true, blockedAt: true } }).catch(() => null)
+  return s && !s.blockedAt ? { id: s.id } : null
 }
 
 const loginByIp = new RateLimiter(20, 15 * 60_000)
@@ -77,7 +80,7 @@ export function buildRouter() {
   const r = express.Router()
 
   r.get('/health', ah(async (_req, res) => { await prisma.$queryRaw`SELECT 1`; res.json({ ok: true }) }))
-  r.get('/config', (_req, res) => res.json({ publicUrl: config.publicUrl }))
+  r.get('/config', (_req, res) => res.json({ publicUrl: config.publicUrl, googleClientId: config.googleClientId || null }))
 
   // ---- authentification professeur ----
   r.post('/auth/login', ah(async (req, res) => {
@@ -141,33 +144,57 @@ export function buildRouter() {
     if (!loginByIp.hit(req.ip || '?') || !loginByEmail.hit(e)) return res.status(429).json({ error: 'Trop de tentatives. Réessayez dans quelques minutes.' })
     const [t, s] = await Promise.all([prisma.teacher.findUnique({ where: { email: e } }), prisma.student.findUnique({ where: { email: e } })])
     // Deux comparaisons à chaque fois : le temps de réponse ne révèle ni le profil ni l'existence du compte.
-    const [okT, okS] = await Promise.all([bcrypt.compare(password, t?.passwordHash ?? DUMMY_HASH), bcrypt.compare(password, s?.passwordHash ?? DUMMY_HASH)])
+    const [okT, okS] = await Promise.all([bcrypt.compare(password, t?.passwordHash ?? DUMMY_HASH), bcrypt.compare(password, s?.passwordHash ?? DUMMY_HASH)]) // compte Google sans mot de passe : DUMMY_HASH, donc refus
     if (t && okT) {
       const pwdAt = t.passwordChangedAt ? +t.passwordChangedAt : 0
       return res.json({ role: 'teacher', token: signTeacher(t.id, pwdAt), user: { id: t.id, name: t.name, email: t.email } })
     }
-    if (s && okS) return res.json({ role: 'student', token: signStudent(s.id), user: { id: s.id, name: s.name, email: s.email } })
+    if (s?.passwordHash && okS && s.blockedAt) return res.status(403).json({ error: 'Ce compte est suspendu. Contactez le support.' })
+    if (s?.passwordHash && okS) return res.json({ role: 'student', token: signStudent(s.id), user: { id: s.id, name: s.name, email: s.email } })
     res.status(401).json({ error: 'E-mail ou mot de passe incorrect.' })
   }))
 
-  // ---- compte étudiant (Study) : e-mail + PIN à 6 chiffres (le PIN tient lieu de mot de passe) ----
+  // ---- compte étudiant (Study) : e-mail + mot de passe, ou Google. Aucun paiement n'est demandé : plan Découverte par défaut ----
   const nameFromEmail = (email: string) => {
     const n = email.split('@')[0].replace(/[._+-]+/g, ' ').replace(/\d+/g, '').trim() || 'Étudiant'
     return n.replace(/\b\p{L}/gu, (c) => c.toUpperCase()).slice(0, 50)
   }
+  const studentSession = (s: { id: string; name: string; email: string }) => ({ role: 'student', token: signStudent(s.id), user: { id: s.id, name: s.name, email: s.email } })
   r.post('/student/signup', ah(async (req, res) => {
     if (!signupByIp.hit(req.ip || '?')) return res.status(429).json({ error: 'Trop de tentatives. Réessayez plus tard.' })
     const d = studentSignupSchema.parse(req.body)
     const exists = await prisma.student.findUnique({ where: { email: d.email } })
     if (exists) return res.status(409).json({ error: 'Un compte existe déjà avec cette adresse e-mail.', fields: [{ path: 'email', message: 'Un compte existe déjà avec cette adresse e-mail.' }] })
-    const s = await prisma.student.create({ data: { email: d.email, name: nameFromEmail(d.email), passwordHash: await bcrypt.hash(d.pin, 12) } })
-    res.status(201).json({ role: 'student', token: signStudent(s.id), user: { id: s.id, name: s.name, email: s.email } })
+    const s = await prisma.student.create({ data: { email: d.email, name: nameFromEmail(d.email), passwordHash: await bcrypt.hash(d.password, 12) } })
+    res.status(201).json(studentSession(s))
   }))
+
+  // Connexion / inscription Google : le navigateur envoie le jeton d'identité, le serveur le vérifie lui-même.
+  r.post('/auth/google', ah(async (req, res) => {
+    if (!googleVerifier.enabled()) return res.status(503).json({ error: 'La connexion Google n’est pas activée.' })
+    if (!loginByIp.hit(req.ip || '?')) return res.status(429).json({ error: 'Trop de tentatives. Réessayez dans quelques minutes.' })
+    const { credential } = googleLoginSchema.parse(req.body)
+    let g
+    try { g = await googleVerifier.verify(credential) } catch { return res.status(401).json({ error: 'Connexion Google refusée. Réessayez.' }) }
+    let s = await prisma.student.findFirst({ where: { OR: [{ googleId: g.sub }, { email: g.email }] } })
+    if (s?.blockedAt) return res.status(403).json({ error: 'Ce compte est suspendu. Contactez le support.' })
+    if (s && s.googleId && s.googleId !== g.sub) return res.status(409).json({ error: 'Cette adresse e-mail est liée à un autre compte Google.' })
+    if (!s) s = await prisma.student.create({ data: { email: g.email, name: (g.name || nameFromEmail(g.email)).slice(0, 50), googleId: g.sub } })
+    else if (!s.googleId) s = await prisma.student.update({ where: { id: s.id }, data: { googleId: g.sub } }) // e-mail vérifié par Google : on lie les deux
+    res.json(studentSession(s))
+  }))
+
   r.get('/student/me', requireStudent, ah(async (req, res) => {
     const s = await prisma.student.findUnique({ where: { id: req.studentId } })
     if (!s) return res.status(401).json({ error: 'Connexion requise.' })
-    res.json({ id: s.id, name: s.name, email: s.email, subscription: await subscriptionOf(s.id) })
+    res.json({ id: s.id, name: s.name, email: s.email, subscription: await subscriptionOf(s.id), limits: publicLimits(await entitlementsOf(s.id)) })
   }))
+
+  // ---- backoffice ----
+  r.use('/admin', buildAdminRouter(requireTeacher, ah))
+
+  // ---- SSO interne (OpenID Connect) : eUniversity fournit l'identité aux autres applications eUniversité ----
+  r.use('/sso', buildSsoRouter(requireStudent, ah))
 
   // ---- abonnement Study (GeniusPay) ----
   r.use('/billing', buildBillingRouter(requireStudent, ah))

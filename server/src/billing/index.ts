@@ -1,5 +1,4 @@
 import { randomBytes } from 'node:crypto'
-import type { NextFunction, Request, Response } from 'express'
 import type { Plan, StudentPayment } from '@prisma/client'
 import { config } from '../config.js'
 import { prisma } from '../db.js'
@@ -29,12 +28,17 @@ export async function subscriptionOf(studentId: string): Promise<SubscriptionInf
   return { active: !!s, plan: s?.plan ?? null, endsAt: s?.endsAt ?? null }
 }
 
-/** L'accès à Study demande un abonnement en cours. */
-export async function requireSubscription(req: Request, res: Response, next: NextFunction) {
-  const sub = await subscriptionOf(req.studentId!).catch(() => null)
-  if (!sub?.active) return res.status(402).json({ error: 'Un abonnement est nécessaire pour accéder à Study.', code: 'SUBSCRIPTION_REQUIRED' })
-  next()
+export interface Entitlements { plan: 'free' | 'paid'; uploadMb: number; courses: number; missions: number }
+
+/** Droits d'un étudiant : abonné = tout ; sinon plan Découverte (fichier léger, un cours, premières missions). */
+export async function entitlementsOf(studentId: string): Promise<Entitlements> {
+  const sub = await subscriptionOf(studentId)
+  return sub.active
+    ? { plan: 'paid', uploadMb: config.studyMaxUploadMb, courses: Infinity, missions: Infinity }
+    : { plan: 'free', uploadMb: config.freeUploadMb, courses: config.freeCourses, missions: config.freeMissions }
 }
+/** Version JSON (Infinity n'existe pas en JSON). */
+export const publicLimits = (e: Entitlements) => ({ plan: e.plan, uploadMb: e.uploadMb, courses: Number.isFinite(e.courses) ? e.courses : null, missions: Number.isFinite(e.missions) ? e.missions : null })
 
 const returnUrl = (paymentId: string) => `${config.publicUrl}/etudiant/abonnement/retour?payment=${paymentId}`
 

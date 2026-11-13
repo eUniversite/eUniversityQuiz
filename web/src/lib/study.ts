@@ -5,8 +5,8 @@ export interface Stats {
 }
 export type NotionState = 'a_decouvrir' | 'en_cours' | 'a_consolider' | 'consolidee' | 'a_reactiver'
 export interface NotionProgress { id: string; label: string; questions: number; state: NotionState; due: boolean }
-export interface MissionProgress { id: string; title: string; questions: number; notions: NotionProgress[]; state: NotionState; stars: number; plays: number; locked: boolean; due: number }
-export interface CourseProgress { missions: MissionProgress[]; due: number; notions: number; mastered: number }
+export interface MissionProgress { id: string; title: string; questions: number; notions: NotionProgress[]; state: NotionState; stars: number; plays: number; locked: boolean; planLocked?: boolean; due: number }
+export interface CourseProgress { plan?: 'free' | 'paid'; missions: MissionProgress[]; due: number; notions: number; mastered: number }
 export const STATE_LABEL: Record<NotionState, string> = {
   a_decouvrir: 'À découvrir', en_cours: 'En cours', a_consolider: 'À consolider', consolidee: 'Consolidée', a_reactiver: 'À réactiver',
 }

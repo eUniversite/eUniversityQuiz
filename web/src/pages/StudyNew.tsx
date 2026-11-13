@@ -1,9 +1,9 @@
 import { DragEvent, FormEvent, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { uploadCourse } from '../lib/api'
+import { api, uploadCourse } from '../lib/api'
+import type { Limits } from '../lib/billing'
 import { ErrorBox, Logo } from '../components/ui'
 
-const MAX_MB = 10
 const OK = /\.(pdf|docx|txt|md)$/i
 
 /** Étape 1 de Study : déposer un cours. La suite (analyse, création, jeu) se suit sur /etudiant/study/:id. */
@@ -12,14 +12,16 @@ export default function StudyNew() {
   const input = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
   const [over, setOver] = useState(false)
-  const [error, setError] = useState(''); const [busy, setBusy] = useState(false)
-  useEffect(() => { document.title = 'Importer un cours — eUniversité Study' }, [])
+  const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [upsell, setUpsell] = useState(false)
+  const [limits, setLimits] = useState<Limits | null>(null)
+  useEffect(() => { document.title = 'Importer un cours — eUniversité Study'; api<Limits>('/study/limits', { as: 'student' }).then(setLimits).catch(() => {}) }, [])
+  const MAX_MB = limits?.uploadMb ?? 2
 
   function pick(f: File | undefined | null) {
-    setError('')
+    setError(''); setUpsell(false)
     if (!f) return
     if (!OK.test(f.name)) return setError('Format non pris en charge. Importez un PDF, un DOCX, un TXT ou un MD.')
-    if (f.size > MAX_MB * 1024 * 1024) return setError(`Fichier trop volumineux (${MAX_MB} Mo maximum).`)
+    if (f.size > MAX_MB * 1024 * 1024) { setUpsell(limits?.plan === 'free'); return setError(`Fichier trop volumineux (${MAX_MB} Mo maximum${limits?.plan === 'free' ? ' avec le plan Découverte' : ''}).`) }
     setFile(f)
   }
   const drop = (e: DragEvent) => { e.preventDefault(); setOver(false); pick(e.dataTransfer.files[0]) }
@@ -29,7 +31,7 @@ export default function StudyNew() {
     if (!file) return setError('Choisissez un fichier à importer.')
     setBusy(true); setError('')
     try { const r = await uploadCourse(file); nav(`/etudiant/study/${r.id}${r.truncated ? '?tronque=1' : ''}`) }
-    catch (err) { setError((err as Error).message); setBusy(false) }
+    catch (err) { setError((err as Error).message); setUpsell((err as { code?: string }).code === 'PLAN_LIMIT'); setBusy(false) }
   }
 
   return (
@@ -53,6 +55,7 @@ export default function StudyNew() {
             <input ref={input} type="file" accept=".pdf,.docx,.txt,.md" className="hidden" onChange={(e) => pick(e.target.files?.[0])} />
           </div>
           {error && <ErrorBox>{error}</ErrorBox>}
+          {upsell && <Link to="/etudiant/abonnement" className="btn-ghost w-full">Passer à l’abonnement</Link>}
           <button className="btn-primary min-h-[56px] w-full text-lg" disabled={busy || !file}>{busy ? 'Envoi…' : 'Créer mon parcours'}</button>
           <p className="text-center text-sm text-ink-soft">Votre fichier n’est pas conservé : seuls les questions créées le sont. Le texte est envoyé au service de génération.</p>
         </form>

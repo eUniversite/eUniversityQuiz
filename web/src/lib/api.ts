@@ -32,7 +32,6 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   const j = await r.json().catch(() => ({}))
   if (!r.ok) {
     if (r.status === 401 && opts.auth !== false && t) { if (asStudent) { setStudentToken(null); location.href = '/connexion' } else { setTeacherToken(null); location.href = '/enseignant/connexion' } }
-    if (r.status === 402 && j.code === 'SUBSCRIPTION_REQUIRED' && asStudent && location.pathname !== '/etudiant/abonnement') location.href = '/etudiant/abonnement'
     throw new ApiError(r.status, j.error || 'Une erreur est survenue.', j.fields, j.code)
   }
   return j
@@ -55,8 +54,7 @@ export async function uploadCourse(file: File): Promise<{ id: string; truncated:
   const j = await r.json().catch(() => ({}))
   if (!r.ok) {
     if (r.status === 401) { setStudentToken(null); location.href = '/connexion' }
-    if (r.status === 402) location.href = '/etudiant/abonnement'
-    throw new ApiError(r.status, j.error || 'Import impossible.')
+    throw new ApiError(r.status, j.error || 'Import impossible.', [], j.code)
   }
   return j
 }

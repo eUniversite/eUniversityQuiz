@@ -6,7 +6,7 @@ import { api, startApp, subscribe } from './helpers.js'
 async function setup() {
   const app = await startApp()
   const email = `etu${Date.now()}${Math.random()}@x.fr`
-  const su = await api(app, 'POST', '/student/signup', { email, pin: '482915', acceptedTerms: true })
+  const su = await api(app, 'POST', '/student/signup', { email, password: 'motdepasse1', acceptedTerms: true })
   expect(su.status).toBe(201)
   await subscribe(su.json.user.id)
   const token = su.json.token as string
@@ -77,7 +77,7 @@ describe('Learn Engine (API)', () => {
     expect((await post({ scope: 'mission:m2', answers: [{ questionId: qs[0].id, chosen: 1 }] })).status).toBe(400)  // question d'une autre mission
     expect((await post({ scope: 'nimporte', answers: [{ questionId: qs[0].id, chosen: 1 }] })).status).toBe(400)
     // Le cours d'un autre étudiant reste invisible.
-    const other = await api(app, 'POST', '/student/signup', { email: `o${Date.now()}@x.fr`, pin: '482915', acceptedTerms: true })
+    const other = await api(app, 'POST', '/student/signup', { email: `o${Date.now()}@x.fr`, password: 'motdepasse1', acceptedTerms: true })
     await subscribe(other.json.user.id)
     expect((await api(app, 'POST', url, { scope: 'course', answers: [{ questionId: qs[0].id, chosen: 1 }] }, other.json.token)).status).toBe(404)
     expect((await api(app, 'GET', `/study/courses/${course.id}/progress`, undefined, other.json.token)).status).toBe(404)

@@ -68,6 +68,9 @@ export function missionStateOf(states: NotionState[]): NotionState {
   return 'en_cours'
 }
 
+/** Numéro d'une mission (« m3 » → 3). */
+export const missionNo = (id: string) => Number(id.slice(1))
+
 interface Q { id: string; notionId: string | null; missionId: string; level: number; position: number }
 interface LatestAttempt { questionId: string; correct: boolean; at: Date }
 
@@ -95,9 +98,10 @@ export function pickReview<T extends Q>(questions: T[], due: { notionKey: string
 }
 
 /** Notions à réviser maintenant pour un cours. */
-export async function reviewQuestions(studentId: string, courseId: string, limit = 8) {
+export async function reviewQuestions(studentId: string, courseId: string, limit = 8, maxMissions = Infinity) {
   const course = await prisma.studyCourse.findFirst({ where: { id: courseId, studentId }, include: { questions: { orderBy: { position: 'asc' } } } })
   if (!course) return []
+  course.questions = course.questions.filter((q) => missionNo(q.missionId) <= maxMissions)
   const now = new Date()
   const [due, attempts] = await Promise.all([
     prisma.studyNotionState.findMany({ where: { studentId, courseId, dueAt: { lte: now } }, select: { notionKey: true, lastCorrect: true, dueAt: true } }),
@@ -109,9 +113,10 @@ export async function reviewQuestions(studentId: string, courseId: string, limit
 // ---- enregistrement d'une partie ------------------------------------------------------------------------
 export interface SessionInput { scope: string; answers: { questionId: string; chosen: number }[]; coins?: number; finished?: boolean }
 
-export async function recordSession(studentId: string, courseId: string, input: SessionInput) {
+export async function recordSession(studentId: string, courseId: string, input: SessionInput, maxMissions = Infinity) {
   const course = await prisma.studyCourse.findFirst({ where: { id: courseId, studentId, status: 'READY' }, include: { questions: true } })
   if (!course) throw new StudyError('Cours introuvable.')
+  course.questions = course.questions.filter((q) => missionNo(q.missionId) <= maxMissions) // plan Découverte : seules les premières missions comptent
   const byId = new Map(course.questions.map((q) => [q.id, q]))
   const { scope, answers } = input
   const m = /^mission:(m\d+)$/.exec(scope)
@@ -181,7 +186,7 @@ export async function recordSession(studentId: string, courseId: string, input: 
 }
 
 // ---- lecture : carte d'un cours et profil ---------------------------------------------------------------
-export async function courseProgress(studentId: string, courseId: string) {
+export async function courseProgress(studentId: string, courseId: string, maxMissions = Infinity) {
   const course = await prisma.studyCourse.findFirst({ where: { id: courseId, studentId }, include: { questions: { orderBy: { position: 'asc' } }, notions: { orderBy: { position: 'asc' } } } })
   if (!course) throw new StudyError('Cours introuvable.')
   const now = new Date()
@@ -213,7 +218,7 @@ export async function courseProgress(studentId: string, courseId: string) {
     const r = results.find((x) => x.missionId === id)
     const out = {
       id, title, questions: qs.length, notions, state: missionStateOf(notions.map((n) => n.state)),
-      stars: r?.bestStars ?? 0, plays: r?.plays ?? 0, locked: prevStars < 1, due: notions.filter((n) => n.due).length,
+      stars: r?.bestStars ?? 0, plays: r?.plays ?? 0, locked: prevStars < 1 || idx + 1 > maxMissions, planLocked: idx + 1 > maxMissions, due: notions.filter((n) => n.due && idx + 1 <= maxMissions).length,
     }
     prevStars = out.stars
     return out

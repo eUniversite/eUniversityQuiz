@@ -5,8 +5,9 @@ import { firstNameOf } from '../lib/student'
 import type { Stats } from '../lib/study'
 import { GameBar } from '../components/GameBar'
 import { ErrorBox, Logo, Spinner } from '../components/ui'
+import type { Limits } from '../lib/billing'
 
-interface Me { id: string; name: string; email: string }
+interface Me { id: string; name: string; email: string; limits: Limits }
 interface CourseItem { id: string; title: string | null; fileName: string; status: string; questionCount: number; stars: number; maxStars: number }
 const LABEL: Record<string, string> = { QUEUED: 'En attente…', EXTRACTING: 'En cours…', ANALYSING: 'Analyse…', CREATING: 'Création…', FAILED: 'Échec' }
 const BANNERS = ['#ffd58a', '#a8e6bf', '#b9d4ff', '#ffc2d1', '#d9c7ff']
@@ -25,19 +26,29 @@ export default function StudentHome() {
     api('/study/stats', { as: 'student' }).then(setStats).catch(() => {})
   }, [])
   const review = stats?.dueCourses[0]
+  const free = me?.limits.plan === 'free'
+  const full = free && !!courses && courses.filter((c) => c.status !== 'FAILED').length >= (me?.limits.courses ?? 0)
 
   return (
     <div className="gm mx-auto min-h-dvh max-w-xl px-6 py-8">
       <header className="flex items-center justify-between">
         <Link to="/etudiant"><Logo className="h-10" /></Link>
         <div className="flex items-center gap-2">
-          <Link to="/etudiant/abonnement" className="btn-ghost btn-sm">Abonnement</Link>
+          <Link to="/etudiant/abonnement" className="btn-ghost btn-sm">{free ? 'Abonnement' : 'Mon abonnement'}</Link>
           <button className="btn-ghost btn-sm" onClick={() => { signOut(); nav('/') }}>Déconnexion</button>
         </div>
       </header>
       {!me ? (error ? <ErrorBox>{error}</ErrorBox> : <Spinner />) : (
         <main className="mt-10 space-y-8">
           <GameBar name={`Salut ${firstNameOf(me.name)}`} stats={stats} to="/etudiant/evolution" />
+
+          {free && (
+            <Link to="/etudiant/abonnement" className="gm-panel block">
+              <span className="gm-title text-lg">Plan Découverte</span>
+              <span className="mt-1 block text-base text-ink-soft">{me.limits.courses} cours · {me.limits.missions} premières missions · fichiers {me.limits.uploadMb} Mo</span>
+              <span className="mt-2 block text-base font-bold underline">Tout débloquer</span>
+            </Link>
+          )}
 
           {review && (
             <a href={`/jeu/index.html?course=${review.courseId}&review=1`} className="gm-btn hot w-full !flex-col !gap-0 !py-4" aria-label={`Réviser ${stats!.due} notions`}>
@@ -85,9 +96,16 @@ export default function StudentHome() {
                   </li>
                 ))}
                 <li>
-                  <Link to="/etudiant/study/nouveau" className="gm-world add !min-h-[84px]">
-                    <span className="gm-title text-lg">＋ Importer un cours</span>
-                  </Link>
+                  {full ? (
+                    <Link to="/etudiant/abonnement" className="gm-world add !min-h-[84px] flex-col !gap-1 text-center">
+                      <span className="gm-title text-lg">🔒 Importer un autre cours</span>
+                      <span className="text-base font-normal text-ink-soft">Réservé aux abonnés</span>
+                    </Link>
+                  ) : (
+                    <Link to="/etudiant/study/nouveau" className="gm-world add !min-h-[84px]">
+                      <span className="gm-title text-lg">＋ Importer un cours</span>
+                    </Link>
+                  )}
                 </li>
               </ul>
             )}

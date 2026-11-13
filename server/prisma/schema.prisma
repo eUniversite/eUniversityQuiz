@@ -40,7 +40,9 @@ model Student {
   id           String   @id @default(uuid())
   email        String   @unique
   name         String
-  passwordHash String
+  passwordHash String?   // vide pour un compte créé via Google
+  googleId     String?   @unique
+  blockedAt    DateTime? // compte suspendu depuis le backoffice
   createdAt    DateTime @default(now())
   courses      StudyCourse[]
   sessions     StudySession[]
@@ -362,4 +364,20 @@ model StudyMissionResult {
   updatedAt  DateTime    @updatedAt
 
   @@id([studentId, courseId, missionId])
+}
+
+// Code d'autorisation du SSO interne (usage unique, 60 s). Seul son hash est conservé.
+model SsoCode {
+  id          String    @id @default(uuid())
+  codeHash    String    @unique
+  clientId    String
+  studentId   String
+  redirectUri String
+  challenge   String?
+  nonce       String?
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([expiresAt])
 }

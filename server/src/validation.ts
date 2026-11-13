@@ -37,21 +37,12 @@ export const signupSchema = z.object({
   password: pw(),
   acceptedTerms: z.literal(true, { error: 'Vous devez accepter les conditions d’utilisation.' }),
 })
-/** PIN à 6 chiffres qui fait office de mot de passe étudiant : on écarte les codes les plus devinables. */
-export const isWeakPin = (pin: string) => {
-  if (/^(\d)\1+$/.test(pin)) return true                       // 000000, 111111…
-  const d = [...pin].map(Number)
-  const step = d[1] - d[0]
-  if ((step === 1 || step === -1) && d.every((x, i) => i === 0 || x - d[i - 1] === step)) return true // 123456, 654321…
-  return /^(\d{2})\1\1$/.test(pin) || /^(\d{3})\1$/.test(pin) // 121212, 123123
-}
-const pin = () => z.string({ error: 'PIN : champ requis.' }).regex(/^\d{6}$/, 'Le PIN doit contenir exactement 6 chiffres.')
-  .refine((v) => !isWeakPin(v), 'Ce PIN est trop facile à deviner. Choisissez-en un autre.')
 export const studentSignupSchema = z.object({
   email: mail(),
-  pin: pin(),
+  password: pw(),
   acceptedTerms: z.literal(true, { error: 'Vous devez accepter les conditions d’utilisation.' }),
 })
+export const googleLoginSchema = z.object({ credential: z.string().min(20).max(4000) })
 export const checkoutSchema = z.object({ plan: z.enum(['MONTHLY', 'YEARLY'], { error: 'Choisissez une formule.' }) })
 
 export const emailSchema = z.object({ email: mail() })

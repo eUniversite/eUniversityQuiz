@@ -19,6 +19,8 @@ import StudentHome from './pages/StudentHome'
 import StudyNew from './pages/StudyNew'
 import Evolution from './pages/Evolution'
 import StudyCourse from './pages/StudyCourse'
+import Admin from './pages/Admin'
+import SsoConnexion from './pages/SsoConnexion'
 import Subscribe from './pages/Subscribe'
 import SubscribeReturn from './pages/SubscribeReturn'
 import { studentToken, teacherToken } from './lib/api'
@@ -41,6 +43,7 @@ export default function App() {
       <Route path="/play/:code" element={<Play />} />
       <Route path="/projection/:code" element={<Projection />} />
       <Route path="/connexion" element={<Connexion />} />
+      <Route path="/sso/connexion" element={<SsoConnexion />} />
       <Route path="/etudiant/inscription" element={<StudentSignup />} />
       <Route path="/etudiant" element={<PrivateStudent><StudentHome /></PrivateStudent>} />
       <Route path="/etudiant/abonnement" element={<PrivateStudent><Subscribe /></PrivateStudent>} />
@@ -54,6 +57,7 @@ export default function App() {
       <Route path="/enseignant/nouveau-mot-de-passe" element={<Reset />} />
       <Route path="/cgu" element={<Legal kind="cgu" />} />
       <Route path="/confidentialite" element={<Legal kind="privacy" />} />
+      <Route path="/admin" element={<Private><Admin /></Private>} />
       <Route path="/enseignant" element={<Private><Dashboard /></Private>} />
       <Route path="/enseignant/quiz/:id" element={<Private><QuizEditor /></Private>} />
       <Route path="/enseignant/session/:id" element={<Private><Console /></Private>} />

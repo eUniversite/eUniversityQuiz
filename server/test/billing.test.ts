@@ -1,10 +1,10 @@
 import crypto from 'node:crypto'
+import bcrypt from 'bcryptjs'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { config } from '../src/config.js'
 import { prisma } from '../src/db.js'
 import { addMonths, isDue } from '../src/billing/index.js'
 import { gateway } from '../src/billing/geniuspay.js'
-import { isWeakPin } from '../src/validation.js'
 import { api, startApp, type App } from './helpers.js'
 
 const SECRET = 'whsec_test'
@@ -14,9 +14,9 @@ let app: App
 beforeAll(async () => { app = await startApp(); config.geniuspayWebhookSecret = SECRET })
 afterEach(() => { vi.restoreAllMocks(); config.billingWebhookGrace = 30 })
 
-async function student(pin = '482915') {
+async function student(password = 'motdepasse1') {
   const email = `etu${Date.now()}${Math.random()}@x.fr`
-  const r = await api(app, 'POST', '/student/signup', { email, pin, acceptedTerms: true })
+  const r = await api(app, 'POST', '/student/signup', { email, password, acceptedTerms: true })
   expect(r.status).toBe(201)
   return { email, id: r.json.user.id as string, token: r.json.token as string }
 }
@@ -33,38 +33,36 @@ function mockGateway(ref = 'MTX-' + Math.random().toString(36).slice(2, 10)) {
   return vi.spyOn(gateway, 'createCheckout').mockResolvedValue({ checkoutUrl: `https://geniuspay.test/checkout/${ref}`, gatewayRef: ref })
 }
 
-describe('Inscription par PIN', () => {
-  it('crée le compte avec e-mail + PIN, et le PIN sert à se connecter', async () => {
+describe('Inscription par e-mail', () => {
+  it('crée le compte avec e-mail + mot de passe, sans rien payer', async () => {
     const s = await student()
-    const login = await api(app, 'POST', '/session/login', { email: s.email, password: '482915' })
+    const login = await api(app, 'POST', '/session/login', { email: s.email, password: 'motdepasse1' })
     expect(login.status).toBe(200)
     expect(login.json.role).toBe('student')
-    expect((await api(app, 'POST', '/session/login', { email: s.email, password: '482916' })).status).toBe(401)
+    expect((await api(app, 'POST', '/session/login', { email: s.email, password: 'motdepasse2' })).status).toBe(401)
   })
 
-  it('refuse un PIN faible ou mal formé, et un e-mail déjà pris', async () => {
-    for (const pin of ['123456', '000000', '654321', '121212', '12345', '12345a', '1234567']) {
-      const r = await api(app, 'POST', '/student/signup', { email: `w${Math.random()}@x.fr`, pin, acceptedTerms: true })
-      expect(r.status, pin).toBe(400)
-    }
+  it('refuse un mot de passe trop court, des conditions non acceptées et un e-mail déjà pris', async () => {
+    expect((await api(app, 'POST', '/student/signup', { email: `w${Math.random()}@x.fr`, password: '1234567', acceptedTerms: true })).status).toBe(400)
     const s = await student()
-    expect((await api(app, 'POST', '/student/signup', { email: s.email, pin: '482915', acceptedTerms: true })).status).toBe(409)
-    expect((await api(app, 'POST', '/student/signup', { email: `n${Math.random()}@x.fr`, pin: '482915', acceptedTerms: false })).status).toBe(400)
+    expect((await api(app, 'POST', '/student/signup', { email: s.email, password: 'motdepasse1', acceptedTerms: true })).status).toBe(409)
+    expect((await api(app, 'POST', '/student/signup', { email: `n${Math.random()}@x.fr`, password: 'motdepasse1', acceptedTerms: false })).status).toBe(400)
   })
 
-  it('reconnaît les PIN faibles', () => {
-    for (const p of ['111111', '123456', '987654', '121212', '123123']) expect(isWeakPin(p), p).toBe(true)
-    for (const p of ['482915', '135792', '908172']) expect(isWeakPin(p), p).toBe(false)
+  it('un ancien compte à PIN à 6 chiffres peut toujours se connecter', async () => {
+    const email = `pin${Date.now()}@x.fr`
+    await prisma.student.create({ data: { email, name: 'Ancien', passwordHash: await bcrypt.hash('482915', 4) } })
+    expect((await api(app, 'POST', '/session/login', { email, password: '482915' })).status).toBe(200)
   })
 })
 
 describe('Abonnement', () => {
-  it('Study est fermé sans abonnement', async () => {
+  it('Study est ouvert sans abonnement, en plan Découverte', async () => {
     const s = await student()
-    const r = await api(app, 'GET', '/study/courses', undefined, s.token)
-    expect(r.status).toBe(402)
-    expect(r.json.code).toBe('SUBSCRIPTION_REQUIRED')
-    expect((await api(app, 'GET', '/student/me', undefined, s.token)).json.subscription.active).toBe(false)
+    expect((await api(app, 'GET', '/study/courses', undefined, s.token)).status).toBe(200)
+    const me = (await api(app, 'GET', '/student/me', undefined, s.token)).json
+    expect(me.subscription.active).toBe(false)
+    expect(me.limits).toEqual({ plan: 'free', uploadMb: 2, courses: 1, missions: 3 })
   })
 
   it('affiche les tarifs : 1 000 par mois, 10 000 par an', async () => {
@@ -103,10 +101,10 @@ describe('Abonnement', () => {
     expect((await webhook('payment.success', { reference: ref('WH1') }, 'deadbeef')).status).toBe(401)
     expect((await webhook('payment.success', { reference: ref('INCONNU') })).status).toBe(404)
     expect((await webhook('webhook.test', {})).status).toBe(200)
-    expect((await api(app, 'GET', '/study/courses', undefined, s.token)).status).toBe(402)
+    expect((await api(app, 'GET', '/student/me', undefined, s.token)).json.limits.plan).toBe('free')
 
     expect((await webhook('payment.success', { reference: ref('WH1'), status: 'completed' })).status).toBe(200)
-    expect((await api(app, 'GET', '/study/courses', undefined, s.token)).status).toBe(200)
+    expect((await api(app, 'GET', '/student/me', undefined, s.token)).json.limits.plan).toBe('paid')
     const before = await prisma.subscription.findMany({ where: { studentId: s.id } })
     expect(before).toHaveLength(1)
 

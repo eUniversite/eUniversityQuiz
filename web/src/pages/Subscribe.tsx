@@ -38,10 +38,11 @@ export default function Subscribe() {
           ) : (
             <>
               <div className="text-center">
-                <h1 className="text-3xl font-extrabold">Activez Study</h1>
-                <p className="mt-2 text-lg text-ink-soft">Choisissez votre formule pour jouer et réviser.</p>
+                <h1 className="text-3xl font-extrabold">Tout débloquer</h1>
+                <p className="mt-2 text-lg text-ink-soft">Toutes les missions, des cours illimités et des fichiers jusqu’à 10 Mo.</p>
               </div>
               <PlanPicker />
+              <Link to="/etudiant" className="mx-auto block text-center text-base font-semibold text-ink-soft underline">Plus tard, continuer en plan Découverte</Link>
             </>
           )}
         </div>

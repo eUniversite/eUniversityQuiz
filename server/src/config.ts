@@ -25,6 +25,18 @@ export const config = {
   geminiBase: process.env.GEMINI_API_BASE || 'https://generativelanguage.googleapis.com/v1beta',
   studyQuestions: Number(process.env.STUDY_QUESTIONS || 8),
   studyMaxUploadMb: Number(process.env.STUDY_MAX_UPLOAD_MB || 10),
+  // Plan Découverte (compte sans abonnement) : fichier, nombre de cours et missions jouables par cours.
+  freeUploadMb: Number(process.env.FREE_UPLOAD_MB || 2),
+  freeCourses: Number(process.env.FREE_COURSES || 1),
+  freeMissions: Number(process.env.FREE_MISSIONS || 3),
+  // Backoffice : e-mails des enseignants (adresse vérifiée) qui ont accès à /admin.
+  adminEmails: (process.env.ADMIN_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean),
+  // Connexion Google (identifiant client OAuth « Web » de la console Google Cloud).
+  googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+  // SSO interne : eUniversity fournit l'identité (OpenID Connect) aux autres applications eUniversité.
+  // SSO_CLIENTS = [{"id":"activate","secret":"…","redirectUris":["https://…/callback"]}] ; SSO_PRIVATE_KEY = clé RSA PEM (« \n » accepté).
+  ssoClients: (() => { try { return JSON.parse(process.env.SSO_CLIENTS || '[]') as { id: string; secret?: string; redirectUris: string[] }[] } catch { return [] } })(),
+  ssoPrivateKey: (process.env.SSO_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
   // Abonnement Study : paiement GeniusPay (clés sandbox pk_sandbox_… / sk_sandbox_…, puis pk_live_… / sk_live_…).
   geniuspayKey: process.env.GENIUSPAY_API_KEY || '',
   geniuspaySecret: process.env.GENIUSPAY_API_SECRET || '',

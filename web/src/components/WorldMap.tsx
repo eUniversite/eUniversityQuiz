@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { STATE_HINT, STATE_LABEL, type CourseProgress } from '../lib/study'
 import { Spinner } from './ui'
@@ -34,7 +35,7 @@ export function WorldMap({ courseId }: { courseId: string }) {
         {p.missions.map((m, i) => {
           const cls = m.locked ? 'locked' : m.stars > 0 ? 'done' : 'current'
           return (
-            <button key={m.id} type="button" disabled={m.locked} aria-label={`${m.title}, ${m.locked ? 'verrouillée' : STATE_LABEL[m.state]}, ${m.stars} étoiles sur 3`}
+            <button key={m.id} type="button" aria-disabled={m.locked && !m.planLocked} disabled={m.locked && !m.planLocked} aria-label={`${m.title}, ${m.planLocked ? 'réservée aux abonnés' : m.locked ? 'verrouillée' : STATE_LABEL[m.state]}, ${m.stars} étoiles sur 3`}
               className={`gm-node ${cls} ${sel === m.id ? 'sel' : ''}`} style={{ left: `${(P[i].x / 360) * 100}%`, top: P[i].y }} onClick={() => setSel(m.id)}>
               {m.locked ? '🔒' : i + 1}
               {!m.locked && <span className="gm-stars" aria-hidden>{[1, 2, 3].map((s) => <span key={s} style={{ opacity: s <= m.stars ? 1 : .25 }}>⭐</span>)}</span>}
@@ -50,7 +51,10 @@ export function WorldMap({ courseId }: { courseId: string }) {
             <h2 className="gm-title text-lg leading-snug">{cur.title}</h2>
             {!cur.locked && <span className={`gm-chip ${cur.state}`}>{STATE_LABEL[cur.state]}</span>}
           </div>
-          <p className="text-base text-ink-soft">{cur.locked ? 'Décroche une étoile à la mission précédente pour l’ouvrir.' : STATE_HINT[cur.state]}</p>
+          {cur.planLocked ? (<>
+            <p className="text-base text-ink-soft">Cette mission est réservée aux abonnés. Le plan Découverte donne accès aux premières missions.</p>
+            <Link to="/etudiant/abonnement" className="gm-btn hot w-full">Débloquer toutes les missions</Link>
+          </>) : <p className="text-base text-ink-soft">{cur.locked ? 'Décroche une étoile à la mission précédente pour l’ouvrir.' : STATE_HINT[cur.state]}</p>}
           {!cur.locked && <button className="gm-btn w-full" onClick={() => play(`&mission=${cur.id}`)}>{cur.stars ? 'Rejouer' : 'Jouer'}</button>}
         </section>
       )}

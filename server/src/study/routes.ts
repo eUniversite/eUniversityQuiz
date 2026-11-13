@@ -6,14 +6,16 @@ import { RateLimiter } from '../security.js'
 import { extractDocument } from './extract.js'
 import { StudyError } from './gemini.js'
 import { z } from 'zod'
-import { requireSubscription } from '../billing/index.js'
-import { courseProgress, evolution, recordSession, reviewQuestions, sampleRun, studentStats } from './learn.js'
+import { entitlementsOf, publicLimits } from '../billing/index.js'
+import { courseProgress, evolution, missionNo, recordSession, reviewQuestions, sampleRun, studentStats } from './learn.js'
 import type { Analysis } from './pipeline.js'
 import { wakeStudyWorker } from './queue.js'
 
 const uploadsByStudent = new RateLimiter(6, 60 * 60_000)
 const sessionsByStudent = new RateLimiter(120, 60 * 60_000)
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: config.studyMaxUploadMb * 1024 * 1024, files: 1, fields: 4 } })
+const uploader = (mb: number) => multer({ storage: multer.memoryStorage(), limits: { fileSize: mb * 1024 * 1024, files: 1, fields: 4 } })
+const uploadFree = uploader(config.freeUploadMb), uploadPaid = uploader(config.studyMaxUploadMb)
+const planLimit = (res: Response, error: string) => res.status(402).json({ error, code: 'PLAN_LIMIT' })
 
 type AH = (fn: (req: Request, res: Response) => Promise<unknown>) => RequestHandler
 
@@ -21,7 +23,6 @@ type AH = (fn: (req: Request, res: Response) => Promise<unknown>) => RequestHand
 export function buildStudyRouter(requireStudent: RequestHandler, ah: AH) {
   const r = express.Router()
   r.use(requireStudent)
-  r.use(requireSubscription)
 
   const out = (c: any) => {
     const a = c.analysis as Analysis | null
@@ -47,12 +48,21 @@ export function buildStudyRouter(requireStudent: RequestHandler, ah: AH) {
     })))
   }))
 
-  r.post('/courses', (req: Request, res: Response, next: NextFunction) => {
-    upload.single('file')(req, res, (err: unknown) => {
+  r.get('/limits', ah(async (req, res) => { res.json(publicLimits(await entitlementsOf(req.studentId!))) }))
+
+  r.post('/courses', async (req: Request, res: Response, next: NextFunction) => {
+   try {
+    // Les droits sont connus avant la lecture du fichier : la limite de taille dépend du plan.
+    const ent = await entitlementsOf(req.studentId!)
+    const count = await prisma.studyCourse.count({ where: { studentId: req.studentId, status: { not: 'FAILED' } } }) // un import raté ne consomme pas le quota
+    if (count >= ent.courses) return planLimit(res, `Le plan Découverte permet ${ent.courses} cours. Supprimez-le ou passez à l’abonnement pour en importer d’autres.`)
+    ;(ent.plan === 'paid' ? uploadPaid : uploadFree).single('file')(req, res, (err: unknown) => {
       if (!err) return next()
       const code = (err as { code?: string }).code
-      res.status(code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: code === 'LIMIT_FILE_SIZE' ? `Fichier trop volumineux (${config.studyMaxUploadMb} Mo maximum).` : 'Import impossible.' })
+      if (code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: `Fichier trop volumineux (${ent.uploadMb} Mo maximum${ent.plan === 'free' ? ' avec le plan Découverte' : ''}).`, ...(ent.plan === 'free' ? { code: 'PLAN_LIMIT' } : {}) })
+      res.status(400).json({ error: 'Import impossible.' })
     })
+   } catch (e) { next(e) }
   }, ah(async (req, res) => {
     if (!config.geminiApiKey) return res.status(503).json({ error: 'La création de parcours n’est pas encore activée sur ce serveur.' })
     if (!req.file) return res.status(400).json({ error: 'Choisissez un fichier à importer.' })
@@ -89,21 +99,24 @@ export function buildStudyRouter(requireStudent: RequestHandler, ah: AH) {
     if (c.status !== 'READY') return res.status(409).json({ error: 'Ce parcours n’est pas encore prêt.' })
     const a = c.analysis as unknown as Analysis
     const unit = a.unit === 'page' ? 'Page' : 'Section'
-    let qs = c.questions
+    const ent = await entitlementsOf(req.studentId!)
+    const totalMissions = new Set(c.questions.map((q) => q.missionId)).size
+    let qs = c.questions.filter((q) => missionNo(q.missionId) <= ent.missions)
     let scope = 'course'
     const mission = typeof req.query.mission === 'string' && /^m\d+$/.test(req.query.mission) ? req.query.mission : null
+    if (mission && missionNo(mission) > ent.missions) return planLimit(res, `Le plan Découverte donne accès aux ${ent.missions} premières missions. Passez à l’abonnement pour continuer.`)
     if (req.query.review === '1') {
-      qs = await reviewQuestions(req.studentId!, c.id)
+      qs = await reviewQuestions(req.studentId!, c.id, 8, ent.missions)
       scope = 'review'
       if (!qs.length) return res.status(409).json({ error: 'Rien à réviser pour le moment : revenez quand un rappel sera dû.' })
     } else if (mission) {
-      qs = sampleRun(qs.filter((q) => q.missionId === mission))
+      qs = sampleRun(c.questions.filter((q) => q.missionId === mission))
       scope = `mission:${mission}`
       if (!qs.length) return res.status(404).json({ error: 'Mission introuvable.' })
     }
     if (scope === 'course') qs = sampleRun(qs)
     res.json({
-      title: c.title, scope,
+      title: c.title, scope, plan: ent.plan, lockedMissions: Math.max(0, totalMissions - ent.missions),
       // Une mission sans question retenue n'est pas proposée.
       missions: a.missions.map((m, i) => ({ id: `m${i + 1}`, title: `Mission ${i + 1} · ${m.title}` })).filter((m) => qs.some((q) => q.missionId === m.id)),
       questions: qs.map((q) => ({
@@ -123,11 +136,11 @@ export function buildStudyRouter(requireStudent: RequestHandler, ah: AH) {
     if (!sessionsByStudent.hit(req.studentId!)) return res.status(429).json({ error: 'Trop de parties enregistrées en peu de temps.' })
     const body = sessionBody.safeParse(req.body)
     if (!body.success) return res.status(400).json({ error: 'Partie invalide.' })
-    try { res.status(201).json(await recordSession(req.studentId!, String(req.params.id), body.data)) }
+    try { res.status(201).json(await recordSession(req.studentId!, String(req.params.id), body.data, (await entitlementsOf(req.studentId!)).missions)) }
     catch (e) { if (e instanceof StudyError) return res.status(e.message === 'Cours introuvable.' ? 404 : 400).json({ error: e.message }); throw e }
   }))
   r.get('/courses/:id/progress', ah(async (req, res) => {
-    try { res.json(await courseProgress(req.studentId!, String(req.params.id))) }
+    try { const ent = await entitlementsOf(req.studentId!); res.json({ ...(await courseProgress(req.studentId!, String(req.params.id), ent.missions)), plan: ent.plan }) }
     catch (e) { if (e instanceof StudyError) return res.status(404).json({ error: e.message }); throw e }
   }))
   r.get('/evolution', ah(async (req, res) => { res.json(await evolution(req.studentId!)) }))
