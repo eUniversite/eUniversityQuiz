@@ -13,7 +13,6 @@ export function PlanPicker({ cta = 'Payer' }: { cta?: string }) {
 
   const monthly = plans.find((p) => p.plan === 'MONTHLY') ?? DEFAULT_PLANS[0]
   const yearly = plans.find((p) => p.plan === 'YEARLY') ?? DEFAULT_PLANS[1]
-  const freeMonths = Math.round((monthly.amount * 12 - yearly.amount) / monthly.amount)
   const chosen = plan === 'YEARLY' ? yearly : monthly
 
   async function pay() {
@@ -24,12 +23,11 @@ export function PlanPicker({ cta = 'Payer' }: { cta?: string }) {
     } catch (e) { setError((e as Error).message); setBusy(false) }
   }
 
-  const card = (p: PlanInfo, sub: string, badge?: string) => {
+  const card = (p: PlanInfo, sub: string) => {
     const on = plan === p.plan
     return (
       <button key={p.plan} type="button" role="radio" aria-checked={on} onClick={() => setPlan(p.plan)}
-        className={`relative w-full rounded-2xl border-2 p-5 text-left transition ${on ? 'border-brand bg-brand-soft' : 'border-line bg-card hover:border-ink/30'}`}>
-        {badge && <span className="absolute -top-3 right-4 rounded-full bg-ink px-3 py-1 text-sm font-bold text-white">{badge}</span>}
+        className={`w-full rounded-2xl border-2 p-5 text-left transition ${on ? 'border-brand bg-brand-soft' : 'border-line bg-card hover:border-ink/30'}`}>
         <div className="flex items-center justify-between gap-4">
           <div>
             <div className="text-lg font-extrabold">{p.label}</div>
@@ -47,8 +45,8 @@ export function PlanPicker({ cta = 'Payer' }: { cta?: string }) {
   return (
     <div className="space-y-6">
       <div role="radiogroup" aria-label="Formule d’abonnement" className="space-y-5">
-        {card(yearly, `soit ${fcfa(Math.round(yearly.amount / 12))} par mois`, freeMonths > 0 ? `${freeMonths} mois offerts` : undefined)}
         {card(monthly, 'sans engagement')}
+        {card(yearly, `soit ${fcfa(Math.round(yearly.amount / 12))} par mois`)}
       </div>
       {error && <ErrorBox>{error}</ErrorBox>}
       <button className="btn-primary w-full text-lg" onClick={pay} disabled={busy}>{busy ? 'Redirection vers le paiement…' : `${cta} ${fcfa(chosen.amount)}`}</button>

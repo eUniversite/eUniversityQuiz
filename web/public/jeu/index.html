@@ -16,7 +16,7 @@
       --font: 'Fredoka', system-ui, -apple-system, 'Segoe UI', sans-serif;
     }
     * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; overflow: hidden; font-family: var(--font); font-weight: 500; color: var(--ink); background: var(--ink); -webkit-user-select: none; user-select: none; }
+    html, body { margin: 0; height: 100%; height: 100dvh; overflow: hidden; overscroll-behavior: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; font-family: var(--font); font-weight: 500; color: var(--ink); background: var(--ink); -webkit-user-select: none; user-select: none; }
     button { font-family: inherit; }
     canvas#scene { width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
     [hidden] { display: none !important; }
@@ -180,6 +180,52 @@
     .actions { display: grid; gap: 12px; margin: 22px 22px 0; }
     .actions .row { display: flex; gap: 10px; } .actions .row .btn { flex: 1; padding: 0 12px; }
     @media (prefers-reduced-motion: reduce) { .q-clock.low, .pop, #countdown .num, #splash .band, .star.on, .hero .badge, #loading .logo { animation-duration: .01s; } }
+
+    /* ===== Téléphones : portrait, paysage, encoche, petits écrans ===== */
+    #top { width: min(760px, calc(100% - 20px - env(safe-area-inset-left) - env(safe-area-inset-right))); }
+    .hudcard { grid-template-columns: minmax(0, 1fr); }                      /* sans ça, la carte s'élargit et pousse les compteurs hors écran */
+    #sound { right: calc(12px + env(safe-area-inset-right)); }
+    body:has(#quiz:not([hidden])) #sound { display: none; }                  /* le bouton son ne recouvre jamais les réponses */
+    .overlay { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+    .overlay.quiz { padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+    @media (max-width: 560px) {
+      .hudcard { padding: 10px 12px 8px; gap: 6px; }
+      .hud-row { flex-wrap: wrap; gap: 6px 8px; min-height: 0; }
+      .mission { flex: 1 1 100%; }
+      .mission .nm { font-size: 16px; }
+      .stats { flex: 1 1 100%; justify-content: space-between; gap: 4px; }
+      .stat { height: 30px; padding: 0 8px; font-size: 15px; gap: 4px; }
+      .heart { width: 20px; height: 20px; }
+      .trail { margin: 0 34px 0 12px; }
+      .trail .node.finish { margin-left: 2px; }                              /* l'arrivée ne recouvre plus la dernière pastille */
+      #banner { bottom: calc(68px + env(safe-area-inset-bottom)); }          /* au-dessus du bouton son */
+    }
+    @media (max-width: 380px) { .stat { padding: 0 6px; font-size: 14px; } .heart { width: 18px; height: 18px; } .mission .no { font-size: 11px; } }
+    @media (max-height: 480px) and (orientation: landscape) {
+      #top { top: calc(6px + env(safe-area-inset-top)); }
+      .hudcard { padding: 5px 12px 3px; gap: 0; }
+      .hud-row { flex-wrap: nowrap; min-height: 30px; }
+      .mission { flex: 1 1 auto; }
+      .mission .nm { font-size: 14px; }
+      .stats { flex: none; }
+      .stat { height: 26px; padding: 0 7px; font-size: 14px; }
+      .heart { width: 18px; height: 18px; }
+      .trail { height: 26px; margin: 0 34px 0 12px; }
+      .trail .node.finish { margin-left: 2px; }
+      .trail .node { top: 2px; } .trail .node.finish { top: 0; } .trail::before, .trail .fill { top: 10px; }
+      .overlay.quiz { padding-top: 8px; padding-bottom: 8px; }
+      .sheet { padding-bottom: 8px; border-radius: 14px; }
+      #q-meta, #s-meta { padding: 6px 12px; font-size: 11px; }
+      .q-clock { top: 4px; min-width: 38px; height: 38px; font-size: 17px; }
+      #q-text { padding: 8px 56px 8px 16px; font-size: clamp(16px, 5.4vh, 22px); }
+      #q-options { grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 0 12px; }
+      .answer { flex-direction: row; align-items: center; gap: 8px; padding: 6px 10px; font-size: clamp(14px, 4.4vh, 17px); }
+      .answer .chip { width: 28px; height: 28px; font-size: 15px; }
+      .answer .tag span:last-child { display: none; }
+      #q-hint { display: none; }
+      #banner { bottom: calc(10px + env(safe-area-inset-bottom)); width: min(560px, calc(100% - 140px)); padding: 8px 12px; font-size: 14px; }
+      #banner .headline { font-size: 15px; }
+    }
   </style>
 </head>
 <body>

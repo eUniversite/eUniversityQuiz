@@ -25,7 +25,7 @@ async function loadCourse(id) {
     res = await fetch(`/api/study/courses/${encodeURIComponent(id)}/game${location.search}`, { headers: { authorization: `Bearer ${localStorage.getItem('euniv:student') || ''}` } });
   } catch { fail('Connexion impossible. Vérifiez votre réseau.'); }
   if (res.status === 401) fail('Votre session a expiré. Reconnectez-vous pour jouer.');
-  if (res.status === 402) { location.href = '/etudiant/abonnement'; return new Promise(() => {}); }
+  if (res.status === 402) fail((await res.json().catch(() => ({}))).error || 'Cette mission est réservée aux abonnés.');
   if (res.status === 409) fail((await res.json().catch(() => ({}))).error || 'Ce parcours n’est pas encore prêt.');
   if (!res.ok) fail('Ce parcours est introuvable ou pas encore prêt.');
   const data = await res.json();
@@ -126,8 +126,24 @@ let bannerTimer = 0;
 // --- Moteur et scène ----------------------------------------------------------
 const canvas = $('scene');
 const mobile = matchMedia('(pointer: coarse)').matches;
-const engine = new Engine(canvas, !mobile, { adaptToDeviceRatio: false });
-if (mobile) engine.setHardwareScalingLevel(1.5);
+const engine = new Engine(canvas, true, { adaptToDeviceRatio: false, powerPreference: 'high-performance' }, false);
+
+// Résolution du rendu : on dessine à la densité réelle de l'écran (un téléphone 3× a trois fois plus de pixels que de
+// pixels CSS), plafonnée par un budget de pixels. Si l'appareil peine, `quality` baisse par petits pas, puis remonte.
+const PIXEL_BUDGET = mobile ? 2.6e6 : 5e6;
+const MIN_QUALITY = 0.6;
+const weak = (navigator.deviceMemory && navigator.deviceMemory <= 2) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4);
+const render = { quality: weak ? 0.8 : 1, scale: 1 };
+function applyRenderScale() {
+  const w = Math.max(1, canvas.clientWidth);
+  const h = Math.max(1, canvas.clientHeight);
+  const dpr = Math.min(window.devicePixelRatio || 1, mobile ? 3 : 2);
+  const fit = Math.sqrt(PIXEL_BUDGET / (w * h));
+  render.scale = Math.max(0.6, Math.min(dpr, fit) * render.quality);
+  engine.setHardwareScalingLevel(1 / render.scale);
+  engine.resize();
+}
+applyRenderScale();
 const scene = new Scene(engine);
 const HAZE = Color3.FromHexString('#fff0d5');
 scene.clearColor = new Color4(HAZE.r, HAZE.g, HAZE.b, 1);
@@ -662,7 +678,23 @@ canvas.addEventListener('pointerup', (e) => {
   else if (Math.abs(dx) > Math.abs(dy)) act(dx < 0 ? 'left' : 'right');
   else act(dy < 0 ? 'jump' : 'slide');
 });
-window.addEventListener('resize', () => engine.resize());
+// Toute modification de la zone visible (rotation, barre d'adresse, clavier, zoom) recalcule la résolution du rendu.
+new ResizeObserver(applyRenderScale).observe(canvas);
+window.addEventListener('resize', applyRenderScale);
+window.addEventListener('orientationchange', () => setTimeout(applyRenderScale, 250));
+window.visualViewport?.addEventListener('resize', applyRenderScale);
+
+// Ajustement dynamique : sous 38 images/s la résolution baisse de 15 % ; après 5 s à pleine cadence elle remonte de 10 %.
+let warmup = 3;
+let fastSecs = 0;
+setInterval(() => {
+  if (document.hidden || state.paused) return;
+  if (warmup > 0) { warmup--; return; }
+  const fps = engine.getFps();
+  if (fps < 38 && render.quality > MIN_QUALITY) { render.quality = Math.max(MIN_QUALITY, render.quality * 0.85); fastSecs = 0; applyRenderScale(); }
+  else if (fps > 57) { if (++fastSecs >= 5 && render.quality < 1) { render.quality = Math.min(1, render.quality * 1.1); fastSecs = 0; applyRenderScale(); } }
+  else fastSecs = 0;
+}, 1000);
 
 function togglePause() {
   if (state.phase !== 'run') return;
@@ -1236,6 +1268,6 @@ state.phase = 'select';
 selectEl.hidden = false;
 if (WHO.includes(forced)) startRun();
 // Poignée de test (navigateur local uniquement) : permet de vérifier l'habillage sans jouer toute la course.
-if (['localhost', '127.0.0.1'].includes(location.hostname)) window.__study = { state, player, showBilan, answerSeconds, diffOf, QUESTIONS };
+if (['localhost', '127.0.0.1'].includes(location.hostname)) window.__study = { state, player, showBilan, answerSeconds, diffOf, QUESTIONS, render };
 scene.onBeforeRenderObservable.add(update);
 engine.runRenderLoop(() => scene.render());
