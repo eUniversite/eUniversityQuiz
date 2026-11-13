@@ -33,6 +33,8 @@ export const config = {
   adminBootstrapEmail: (process.env.ADMIN_BOOTSTRAP_EMAIL || '').trim().toLowerCase(),
   adminBootstrapPassword: process.env.ADMIN_BOOTSTRAP_PASSWORD || '',
   adminBootstrapReset: process.env.ADMIN_BOOTSTRAP_RESET === '1',
+  // Mettre DISABLE_DATA_PURGE=1 au lancement officiel : la fonction « vider les données » du backoffice est alors coupée.
+  disableDataPurge: process.env.DISABLE_DATA_PURGE === '1',
   // Connexion Google (identifiant client OAuth « Web » de la console Google Cloud).
   googleClientId: process.env.GOOGLE_CLIENT_ID || '',
   // SSO interne : eUniversity fournit l'identité (OpenID Connect) aux autres applications eUniversité.

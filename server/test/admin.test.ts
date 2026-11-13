@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs'
-import { beforeAll, describe, expect, it } from 'vitest'
-import { bootstrapAdmin } from '../src/admin.js'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { bootstrapAdmin, PURGE_MIN_DELAY_MS } from '../src/admin.js'
 import { config } from '../src/config.js'
 import { prisma } from '../src/db.js'
 import { api, startApp, type App } from './helpers.js'
@@ -107,5 +107,60 @@ describe('Backoffice', () => {
     const actions = (await prisma.adminLog.findMany({ where: { adminEmail: adm.email } })).map((l) => l.action)
     expect(actions).toEqual(expect.arrayContaining(['login', 'abonnement.offrir', 'etudiant.suspendre', 'etudiant.reactiver']))
     expect((await api(app, 'GET', '/admin/logs', undefined, t)).json.items.length).toBeGreaterThan(0)
+  })
+})
+
+describe('Vider les données de test', () => {
+  it('exige mot de passe, aperçu, délai, phrase exacte et jeton à usage unique ; ne touche ni aux admins ni aux enseignants', async () => {
+    const a = await admin(); const t = a.token
+    const s = await student()
+    await teacherToken()
+    const preview = (scope: string, password = PASSWORD) => api(app, 'POST', '/admin/purge/preview', { scope, password }, t)
+    const run = (body: object) => api(app, 'POST', '/admin/purge/execute', body, t)
+
+    expect((await api(app, 'POST', '/admin/purge/preview', { scope: 'students', password: PASSWORD })).status).toBe(401) // sans jeton admin
+    expect((await preview('students', 'faux')).status).toBe(403) // 403 et non 401 : une erreur de saisie ne doit pas déconnecter
+    expect((await preview('inconnu')).status).toBe(400)
+
+    const p1 = (await preview('students')).json
+    expect(p1.phrase).toBe('VIDER ETUDIANTS')
+    expect(p1.counts.find((c: any) => c.label === 'Étudiants').n).toBeGreaterThan(0)
+    // trop rapide : refusé, et le jeton est consommé
+    expect((await run({ scope: 'students', password: PASSWORD, token: p1.token, phrase: p1.phrase })).status).toBe(400)
+    expect((await api(app, 'GET', '/student/me', undefined, s.token)).status).toBe(200)
+
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      const p2 = (await preview('students')).json
+      vi.setSystemTime(Date.now() + PURGE_MIN_DELAY_MS + 1000)
+      expect((await run({ scope: 'students', password: PASSWORD, token: p2.token, phrase: 'vider etudiants' })).status).toBe(400) // phrase fausse
+      expect((await run({ scope: 'students', password: PASSWORD, token: p2.token, phrase: p2.phrase })).status).toBe(400)        // jeton déjà consommé
+
+      const p3 = (await preview('students')).json
+      vi.setSystemTime(Date.now() + PURGE_MIN_DELAY_MS + 1000)
+      expect((await run({ scope: 'all', password: PASSWORD, token: p3.token, phrase: 'VIDER TOUT' })).status).toBe(400)           // jeton lié à un autre périmètre
+      const p4 = (await preview('students')).json
+      vi.setSystemTime(Date.now() + PURGE_MIN_DELAY_MS + 1000)
+      expect((await run({ scope: 'students', password: 'faux', token: p4.token, phrase: p4.phrase })).status).toBe(403)           // mot de passe redemandé
+
+      const p5 = (await preview('students')).json
+      vi.setSystemTime(Date.now() + PURGE_MIN_DELAY_MS + 1000)
+      const ok = await run({ scope: 'students', password: PASSWORD, token: p5.token, phrase: p5.phrase })
+      expect(ok.status).toBe(200)
+    } finally { vi.useRealTimers() }
+
+    expect(await prisma.student.count()).toBe(0)
+    expect(await prisma.studentPayment.count()).toBe(0)
+    expect((await api(app, 'GET', '/student/me', undefined, s.token)).status).toBe(401)
+    expect(await prisma.teacher.count()).toBeGreaterThan(0)
+    expect((await api(app, 'GET', '/admin/me', undefined, t)).status).toBe(200)
+    const logs = (await prisma.adminLog.findMany({ where: { adminEmail: a.email } })).map((l) => l.action)
+    expect(logs).toEqual(expect.arrayContaining(['purge.apercu', 'purge.refusee', 'purge']))
+  })
+
+  it('peut être désactivée par DISABLE_DATA_PURGE', async () => {
+    const t = (await admin()).token
+    config.disableDataPurge = true
+    try { expect((await api(app, 'POST', '/admin/purge/preview', { scope: 'live', password: PASSWORD }, t)).status).toBe(403) } finally { config.disableDataPurge = false }
   })
 })

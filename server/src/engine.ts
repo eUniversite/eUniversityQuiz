@@ -63,6 +63,12 @@ class Engine {
     this.lives.clear(); this.byCode.clear(); this.tokens.clear(); this.loading.clear()
   }
 
+  /** Vide la mémoire des sessions en cours (après une purge de la base) : minuteries arrêtées, plus aucune session fantôme. */
+  resetCache() {
+    for (const l of this.lives.values()) { clearTimeout(l.timer); clearTimeout(l.countsTimer) }
+    this.lives.clear(); this.byCode.clear(); this.tokens.clear(); this.loading.clear()
+  }
+
   private sweep() {
     const now = Date.now()
     for (const l of this.lives.values()) {

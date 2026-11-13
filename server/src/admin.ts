@@ -7,9 +7,33 @@ import { config } from './config.js'
 import { RateLimiter } from './security.js'
 import { prisma } from './db.js'
 import { fulfil, PLANS, subscriptionOf } from './billing/index.js'
+import { engine } from './engine.js'
 import { gateway } from './billing/geniuspay.js'
 
 type AH = (fn: (req: Request, res: Response) => Promise<unknown>) => RequestHandler
+
+// ---- purge des données de test ----
+export const PURGE_SCOPES = {
+  students: { label: 'Étudiants et données Study', phrase: 'VIDER ETUDIANTS' },
+  live: { label: 'Quiz et sessions Live', phrase: 'VIDER LIVE' },
+  all: { label: 'Toutes les données', phrase: 'VIDER TOUT' },
+} as const
+type PurgeScope = keyof typeof PURGE_SCOPES
+export const PURGE_MIN_DELAY_MS = 15_000       // délai imposé entre l'aperçu et la confirmation
+const PURGE_TTL_MS = 5 * 60_000
+const purgeChallenges = new Map<string, { adminId: string; scope: PurgeScope; at: number }>()
+const purgeLimiter = new RateLimiter(6, 60 * 60_000)
+
+async function purgeCounts(scope: PurgeScope) {
+  const st = scope !== 'live', lv = scope !== 'students'
+  const [students, courses, payments, subscriptions, games, quizzes, sessions, participants, answers] = await Promise.all([
+    st ? prisma.student.count() : 0, st ? prisma.studyCourse.count() : 0, st ? prisma.studentPayment.count() : 0, st ? prisma.subscription.count() : 0, st ? prisma.studySession.count() : 0,
+    lv ? prisma.quiz.count() : 0, lv ? prisma.session.count() : 0, lv ? prisma.participant.count() : 0, lv ? prisma.answer.count() : 0,
+  ])
+  const rows: [string, number][] = st ? [['Étudiants', students], ['Cours Study', courses], ['Paiements', payments], ['Abonnements', subscriptions], ['Parties jouées', games]] : []
+  if (lv) rows.push(['Quiz', quizzes], ['Sessions Live', sessions], ['Participants', participants], ['Réponses', answers])
+  return rows.map(([label, n]) => ({ label, n }))
+}
 
 const DAY = 86400_000
 const PAGE = 25
@@ -79,6 +103,50 @@ export function buildAdminRouter(ah: AH) {
     const p = page(req.query.page)
     const [total, rows] = await Promise.all([prisma.adminLog.count(), prisma.adminLog.findMany({ orderBy: { createdAt: 'desc' }, skip: (p - 1) * PAGE, take: PAGE })])
     res.json({ total, page: p, pageSize: PAGE, items: rows })
+  }))
+
+  // ---- Zone dangereuse : vider les données de test. Comptes enseignants, administrateurs et journal d'audit ne sont JAMAIS supprimés. ----
+  const purgeBody = z.object({ scope: z.enum(['students', 'live', 'all']), password: z.string().min(1).max(200) })
+  const checkPassword = async (req: Request, password: string) => {
+    const a = await prisma.admin.findUniqueOrThrow({ where: { id: req.adminId } })
+    return bcrypt.compare(password, a.passwordHash)
+  }
+
+  r.get('/purge/status', (_req, res) => res.json({ enabled: !config.disableDataPurge, minDelaySec: PURGE_MIN_DELAY_MS / 1000, scopes: PURGE_SCOPES }))
+
+  // Étape 1 : vérifie le mot de passe, montre ce qui sera supprimé et remet un jeton à usage unique.
+  r.post('/purge/preview', ah(async (req, res) => {
+    if (config.disableDataPurge) return res.status(403).json({ error: 'La suppression des données est désactivée sur ce serveur.' })
+    const { scope, password } = purgeBody.parse(req.body)
+    if (!purgeLimiter.hit(req.adminId!)) return res.status(429).json({ error: 'Trop de tentatives. Réessayez dans une heure.' })
+    if (!(await checkPassword(req, password))) { await auditLog(who(req), 'purge.refusee', req, scope, 'mot de passe incorrect (aperçu)'); return res.status(403).json({ error: 'Mot de passe incorrect.' }) }
+    const token = randomBytes(24).toString('base64url')
+    for (const [k, v] of purgeChallenges) if (Date.now() - v.at > PURGE_TTL_MS) purgeChallenges.delete(k)
+    purgeChallenges.set(token, { adminId: req.adminId!, scope, at: Date.now() })
+    await auditLog(who(req), 'purge.apercu', req, scope)
+    res.json({ token, phrase: PURGE_SCOPES[scope].phrase, minDelaySec: PURGE_MIN_DELAY_MS / 1000, expiresInSec: PURGE_TTL_MS / 1000, counts: await purgeCounts(scope) })
+  }))
+
+  // Étape 2 : mot de passe redemandé, phrase exacte, jeton valide, et délai minimal écoulé depuis l'aperçu.
+  r.post('/purge/execute', ah(async (req, res) => {
+    if (config.disableDataPurge) return res.status(403).json({ error: 'La suppression des données est désactivée sur ce serveur.' })
+    const d = purgeBody.extend({ token: z.string().min(10).max(100), phrase: z.string().max(60) }).parse(req.body)
+    if (!purgeLimiter.hit(req.adminId!)) return res.status(429).json({ error: 'Trop de tentatives. Réessayez dans une heure.' })
+    const c = purgeChallenges.get(d.token)
+    purgeChallenges.delete(d.token) // usage unique : toute tentative, réussie ou non, consomme le jeton
+    if (!c || c.adminId !== req.adminId || c.scope !== d.scope || Date.now() - c.at > PURGE_TTL_MS) return res.status(400).json({ error: 'Demande expirée. Recommencez depuis le début.' })
+    if (Date.now() - c.at < PURGE_MIN_DELAY_MS) return res.status(400).json({ error: 'Confirmation trop rapide. Recommencez et prenez le temps de relire.' })
+    if (d.phrase !== PURGE_SCOPES[d.scope].phrase) return res.status(400).json({ error: 'La phrase de confirmation est incorrecte.' })
+    if (!(await checkPassword(req, d.password))) { await auditLog(who(req), 'purge.refusee', req, d.scope, 'mot de passe incorrect (confirmation)'); return res.status(403).json({ error: 'Mot de passe incorrect.' }) }
+
+    const counts = await purgeCounts(d.scope)
+    await auditLog(who(req), 'purge', req, d.scope, counts.map((x) => `${x.label}: ${x.n}`).join(', ')) // écrit AVANT la suppression
+    await prisma.$transaction(async (tx) => {
+      if (d.scope !== 'live') { await tx.ssoCode.deleteMany(); await tx.student.deleteMany() }      // les cascades emportent cours, questions, parties, paiements, abonnements
+      if (d.scope !== 'students') { await tx.quiz.deleteMany(); await tx.session.deleteMany() }       // les cascades emportent questions, participants, réponses
+    }, { timeout: 120_000 })
+    if (d.scope !== 'students') engine.resetCache()
+    res.json({ ok: true, counts })
   }))
 
   r.get('/stats', ah(async (_req, res) => {
