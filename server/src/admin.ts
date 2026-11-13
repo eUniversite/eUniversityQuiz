@@ -1,7 +1,10 @@
 import { randomBytes } from 'node:crypto'
+import bcrypt from 'bcryptjs'
+import jwt from 'jsonwebtoken'
 import express, { type NextFunction, type Request, type RequestHandler, type Response } from 'express'
 import { z } from 'zod'
 import { config } from './config.js'
+import { RateLimiter } from './security.js'
 import { prisma } from './db.js'
 import { fulfil, PLANS, subscriptionOf } from './billing/index.js'
 import { gateway } from './billing/geniuspay.js'
@@ -12,19 +15,71 @@ const DAY = 86400_000
 const PAGE = 25
 const page = (q: unknown) => Math.max(1, Math.trunc(Number(q)) || 1)
 
-/** Backoffice. Réservé aux enseignants dont l'e-mail figure dans ADMIN_EMAILS ET est vérifié (sinon quiconque s'inscrirait avec cette adresse deviendrait admin). */
-export function buildAdminRouter(requireTeacher: RequestHandler, ah: AH) {
+const DUMMY_HASH = bcrypt.hashSync('dummy-password', 10)
+const loginByIp = new RateLimiter(10, 15 * 60_000)
+const loginByEmail = new RateLimiter(5, 15 * 60_000)
+const signAdmin = (id: string, pwdAt: number) => jwt.sign({ sub: id, role: 'admin', pwd: pwdAt }, config.jwtSecret, { expiresIn: '8h' })
+const loginSchema = z.object({ email: z.string().email().max(200), password: z.string().min(1).max(200) })
+const passwordSchema = z.object({ current: z.string().min(1).max(200), next: z.string().min(12, 'Mot de passe : 12 caractères minimum.').max(200) })
+
+declare module 'express-serve-static-core' { interface Request { adminId?: string; adminEmail?: string } }
+
+/** Journal d'audit : ne doit jamais faire échouer l'action elle-même. */
+export const auditLog = (admin: { id?: string | null; email: string }, action: string, req: Request, target?: string, detail?: string) =>
+  prisma.adminLog.create({ data: { adminId: admin.id ?? null, adminEmail: admin.email, action, target, detail, ip: req.ip } }).catch((e) => console.error('[admin] journal', e))
+
+/** Backoffice : comptes administrateurs dédiés (table Admin), créés en ligne de commande (npm run admin:create). Jeton à part, 8 h, invalidé au changement de mot de passe. */
+export function buildAdminRouter(ah: AH) {
   const r = express.Router()
-  r.use(requireTeacher)
+
+  r.post('/login', ah(async (req, res) => {
+    const { email, password } = loginSchema.parse(req.body)
+    const e = email.toLowerCase()
+    if (!loginByIp.hit(req.ip || '?') || !loginByEmail.hit(e)) return res.status(429).json({ error: 'Trop de tentatives. Réessayez dans quelques minutes.' })
+    const a = await prisma.admin.findUnique({ where: { email: e } })
+    const ok = await bcrypt.compare(password, a?.passwordHash ?? DUMMY_HASH) // toujours une comparaison : le temps ne révèle pas si le compte existe
+    if (!a || !ok || a.disabledAt) {
+      await auditLog({ id: a?.id, email: e }, 'login.echec', req, undefined, a?.disabledAt ? 'compte désactivé' : undefined)
+      return res.status(401).json({ error: 'E-mail ou mot de passe incorrect.' })
+    }
+    await prisma.admin.update({ where: { id: a.id }, data: { lastLoginAt: new Date() } })
+    await auditLog(a, 'login', req)
+    res.json({ token: signAdmin(a.id, a.passwordChangedAt ? +a.passwordChangedAt : 0), admin: { id: a.id, name: a.name, email: a.email } })
+  }))
+
   r.use(async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const t = await prisma.teacher.findUnique({ where: { id: req.teacherId }, select: { email: true, emailVerifiedAt: true } })
-      if (!t || !t.emailVerifiedAt || !config.adminEmails.includes(t.email.toLowerCase())) return res.status(403).json({ error: 'Accès réservé aux administrateurs.' })
+      let payload: { sub?: string; role?: string; pwd?: number }
+      try { payload = jwt.verify((req.headers.authorization ?? '').replace(/^Bearer /, ''), config.jwtSecret) as typeof payload } catch { return res.status(401).json({ error: 'Connexion requise.' }) }
+      if (payload.role !== 'admin' || !payload.sub) return res.status(401).json({ error: 'Connexion requise.' })
+      const a = await prisma.admin.findUnique({ where: { id: payload.sub } })
+      if (!a || a.disabledAt || (a.passwordChangedAt ? +a.passwordChangedAt : 0) > (payload.pwd ?? 0)) return res.status(401).json({ error: 'Connexion requise.' })
+      req.adminId = a.id; req.adminEmail = a.email
       next()
     } catch (e) { next(e) }
   })
+  const who = (req: Request) => ({ id: req.adminId, email: req.adminEmail! })
 
-  r.get('/me', (_req, res) => res.json({ admin: true }))
+  r.get('/me', ah(async (req, res) => {
+    const a = await prisma.admin.findUniqueOrThrow({ where: { id: req.adminId } })
+    res.json({ id: a.id, name: a.name, email: a.email, lastLoginAt: a.lastLoginAt })
+  }))
+
+  r.post('/password', ah(async (req, res) => {
+    const d = passwordSchema.parse(req.body)
+    const a = await prisma.admin.findUniqueOrThrow({ where: { id: req.adminId } })
+    if (!(await bcrypt.compare(d.current, a.passwordHash))) return res.status(400).json({ error: 'Mot de passe actuel incorrect.' })
+    const now = new Date(Date.now() + 1000) // les jetons émis jusqu'ici deviennent invalides
+    await prisma.admin.update({ where: { id: a.id }, data: { passwordHash: await bcrypt.hash(d.next, 12), passwordChangedAt: now } })
+    await auditLog(a, 'mot-de-passe', req)
+    res.json({ token: signAdmin(a.id, +now) })
+  }))
+
+  r.get('/logs', ah(async (req, res) => {
+    const p = page(req.query.page)
+    const [total, rows] = await Promise.all([prisma.adminLog.count(), prisma.adminLog.findMany({ orderBy: { createdAt: 'desc' }, skip: (p - 1) * PAGE, take: PAGE })])
+    res.json({ total, page: p, pageSize: PAGE, items: rows })
+  }))
 
   r.get('/stats', ah(async (_req, res) => {
     const now = new Date(), d7 = new Date(+now - 7 * DAY), d30 = new Date(+now - 30 * DAY), d14 = new Date(+now - 14 * DAY)
@@ -77,6 +132,7 @@ export function buildAdminRouter(requireTeacher: RequestHandler, ah: AH) {
     const { blocked } = z.object({ blocked: z.boolean() }).parse(req.body)
     const done = await prisma.student.updateMany({ where: { id: String(req.params.id) }, data: { blockedAt: blocked ? new Date() : null } })
     if (!done.count) return res.status(404).json({ error: 'Étudiant introuvable.' })
+    await auditLog(who(req), blocked ? 'etudiant.suspendre' : 'etudiant.reactiver', req, String(req.params.id))
     res.json({ ok: true })
   }))
 
@@ -87,7 +143,7 @@ export function buildAdminRouter(requireTeacher: RequestHandler, ah: AH) {
     if (!s) return res.status(404).json({ error: 'Étudiant introuvable.' })
     const p = await prisma.studentPayment.create({ data: { studentId: s.id, plan, amount: 0, reference: `GRANT-${randomBytes(6).toString('hex')}` } })
     await fulfil(p.id)
-    console.log(`[admin] abonnement ${plan} offert à ${s.email} (${PLANS[plan].months} mois)`)
+    await auditLog(who(req), 'abonnement.offrir', req, s.email, `${plan} (${PLANS[plan].months} mois)`)
     res.status(201).json({ subscription: await subscriptionOf(s.id) })
   }))
 
@@ -110,6 +166,7 @@ export function buildAdminRouter(requireTeacher: RequestHandler, ah: AH) {
     if (!p.gatewayRef || !gateway.configured()) return res.status(409).json({ error: 'Ce paiement ne peut pas être vérifié chez GeniusPay.' })
     const remote = await gateway.fetchStatus(p.gatewayRef)
     if (!remote) return res.status(502).json({ error: 'GeniusPay ne répond pas.' })
+    await auditLog(who(req), 'paiement.verifier', req, p.reference, `GeniusPay : ${remote}`)
     if (remote === 'completed') await fulfil(p.id)
     else if (['failed', 'cancelled', 'expired'].includes(remote)) await prisma.studentPayment.updateMany({ where: { id: p.id, status: 'PENDING' }, data: { status: 'FAILED' } })
     res.json({ status: (await prisma.studentPayment.findUnique({ where: { id: p.id } }))!.status, remote })
@@ -122,4 +179,24 @@ export function buildAdminRouter(requireTeacher: RequestHandler, ah: AH) {
   }))
 
   return r
+}
+
+/**
+ * Crée le premier administrateur depuis ADMIN_BOOTSTRAP_EMAIL / ADMIN_BOOTSTRAP_PASSWORD (utile sans accès terminal).
+ * Un compte existant n'est pas modifié (le mot de passe changé depuis le backoffice reste valable), sauf avec ADMIN_BOOTSTRAP_RESET=1.
+ */
+export async function bootstrapAdmin(): Promise<'created' | 'reset' | 'exists' | 'skipped'> {
+  const { adminBootstrapEmail: email, adminBootstrapPassword: password, adminBootstrapReset: reset } = config
+  if (!email && !password) return 'skipped'
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 12) {
+    console.error('[admin] ADMIN_BOOTSTRAP_EMAIL (adresse valide) et ADMIN_BOOTSTRAP_PASSWORD (12 caractères minimum) sont requis : administrateur non créé.')
+    return 'skipped'
+  }
+  const hash = await bcrypt.hash(password, 12)
+  const a = await prisma.admin.findUnique({ where: { email } })
+  if (!a) { await prisma.admin.create({ data: { email, name: email.split('@')[0], passwordHash: hash } }); console.log(`[admin] administrateur créé : ${email}`); return 'created' }
+  if (!reset) return 'exists'
+  await prisma.admin.update({ where: { id: a.id }, data: { passwordHash: hash, passwordChangedAt: new Date(Date.now() + 1000), disabledAt: null } })
+  console.log(`[admin] mot de passe réinitialisé : ${email} (retirez ADMIN_BOOTSTRAP_RESET)`)
+  return 'reset'
 }

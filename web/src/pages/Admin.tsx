@@ -1,26 +1,32 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { api } from '../lib/api'
+import { useNavigate } from 'react-router-dom'
+import { api as base, setAdminToken } from '../lib/api'
 import { fcfa } from '../lib/billing'
 import { ErrorBox, Logo, Spinner } from '../components/ui'
+import { PasswordInput } from '../components/PasswordInput'
 
-type Tab = 'stats' | 'students' | 'payments' | 'courses'
-const TABS: [Tab, string][] = [['stats', 'Tableau de bord'], ['students', 'Étudiants'], ['payments', 'Paiements'], ['courses', 'Cours']]
+type Tab = 'stats' | 'students' | 'payments' | 'courses' | 'logs' | 'account'
+const TABS: [Tab, string][] = [['stats', 'Tableau de bord'], ['students', 'Étudiants'], ['payments', 'Paiements'], ['courses', 'Cours'], ['logs', 'Journal'], ['account', 'Mon compte']]
+/** Tous les appels du backoffice portent le jeton administrateur. */
+const api = <T = any>(path: string, opts: { method?: string; body?: unknown } = {}) => base<T>(path, { ...opts, as: 'admin' })
 const day = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '—')
 const PAY: Record<string, string> = { PENDING: 'En attente', COMPLETED: 'Payé', FAILED: 'Échoué' }
 
 /** Backoffice : suivi des données de l'application. Accès : enseignant dont l'e-mail est dans ADMIN_EMAILS. */
 export default function Admin() {
   const [tab, setTab] = useState<Tab>('stats')
-  const [ok, setOk] = useState<boolean | null>(null)
+  const nav = useNavigate()
+  const [me, setMe] = useState<{ name: string; email: string } | null>(null)
   const [msg, setMsg] = useState('')
-  useEffect(() => { document.title = 'Backoffice — eUniversité'; api('/admin/me').then(() => setOk(true)).catch((e) => { setOk(false); setMsg(e.message) }) }, [])
+  useEffect(() => { document.title = 'Backoffice — eUniversité'; api('/admin/me').then(setMe).catch((e) => setMsg(e.message)) }, [])
+  const ok = me ? true : msg ? false : null
 
   return (
     <div className="mx-auto min-h-dvh max-w-5xl px-4 py-6">
       <header className="flex items-center justify-between gap-4">
-        <Link to="/enseignant"><Logo className="h-10" /></Link>
-        <span className="text-base font-bold text-ink-soft">Backoffice</span>
+        <Logo className="h-10" />
+        <span className="flex items-center gap-3 text-base text-ink-soft"><span className="hidden sm:inline">{me?.email}</span>
+          <button className="btn-ghost btn-sm" onClick={() => { setAdminToken(null); nav('/admin/connexion', { replace: true }) }}>Déconnexion</button></span>
       </header>
       {ok === null ? <Spinner /> : !ok ? <div className="mt-8"><ErrorBox>{msg}</ErrorBox></div> : (
         <>
@@ -32,6 +38,8 @@ export default function Admin() {
             {tab === 'students' && <Students />}
             {tab === 'payments' && <Payments />}
             {tab === 'courses' && <Courses />}
+            {tab === 'logs' && <Logs />}
+            {tab === 'account' && <Account />}
           </main>
         </>
       )}
@@ -214,5 +222,62 @@ function Courses() {
         </div>
       )}
     </div>
+  )
+}
+
+const ACTIONS: Record<string, string> = {
+  login: 'Connexion', 'login.echec': 'Connexion refusée', 'mot-de-passe': 'Changement de mot de passe', 'abonnement.offrir': 'Abonnement offert',
+  'etudiant.suspendre': 'Étudiant suspendu', 'etudiant.reactiver': 'Étudiant réactivé', 'paiement.verifier': 'Paiement vérifié',
+}
+const hour = (iso: string) => new Date(iso).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+
+function Logs() {
+  const [page, setPage] = useState(1)
+  const { data, error } = useLoad<any>(`/admin/logs?page=${page}`)
+  if (error) return <ErrorBox>{error}</ErrorBox>
+  if (!data) return <Spinner />
+  return (
+    <div>
+      <div className="overflow-x-auto rounded-2xl border border-line bg-card">
+        <table className="w-full min-w-[680px] text-left text-base">
+          <thead className="text-sm text-ink-soft"><tr><th className="p-3">Quand</th><th className="p-3">Administrateur</th><th className="p-3">Action</th><th className="p-3">Cible</th><th className="p-3">IP</th></tr></thead>
+          <tbody>
+            {data.items.map((l: any) => (
+              <tr key={l.id} className="border-t border-line align-top">
+                <td className="p-3 whitespace-nowrap">{hour(l.createdAt)}</td><td className="p-3">{l.adminEmail}</td>
+                <td className={`p-3 ${l.action === 'login.echec' ? 'font-semibold text-bad' : ''}`}>{ACTIONS[l.action] ?? l.action}{l.detail && <div className="text-sm text-ink-soft">{l.detail}</div>}</td>
+                <td className="p-3 break-all">{l.target ?? '—'}</td><td className="p-3 text-sm text-ink-soft">{l.ip ?? '—'}</td>
+              </tr>
+            ))}
+            {!data.items.length && <tr><td colSpan={5} className="p-6 text-center text-ink-soft">Journal vide.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <Pager page={data.page} total={data.total} size={data.pageSize} onPage={setPage} />
+    </div>
+  )
+}
+
+function Account() {
+  const [current, setCurrent] = useState(''); const [next, setNext] = useState(''); const [again, setAgain] = useState('')
+  const [error, setError] = useState(''); const [done, setDone] = useState(false); const [busy, setBusy] = useState(false)
+  async function submit(e: React.FormEvent) {
+    e.preventDefault(); setError(''); setDone(false)
+    if (next.length < 12) return setError('12 caractères minimum.')
+    if (next !== again) return setError('Les deux mots de passe ne sont pas identiques.')
+    setBusy(true)
+    try { const r = await api('/admin/password', { body: { current, next } }); setAdminToken(r.token); setDone(true); setCurrent(''); setNext(''); setAgain('') }
+    catch (err) { setError((err as Error).message) } finally { setBusy(false) }
+  }
+  return (
+    <form onSubmit={submit} className="card max-w-md space-y-4">
+      <h2 className="text-lg font-extrabold">Changer mon mot de passe</h2>
+      <div><label htmlFor="cur" className="label">Mot de passe actuel</label><PasswordInput id="cur" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" required /></div>
+      <div><label htmlFor="nw" className="label">Nouveau mot de passe (12 caractères minimum)</label><PasswordInput id="nw" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" required /></div>
+      <div><label htmlFor="ag" className="label">Confirmation</label><PasswordInput id="ag" value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" required /></div>
+      {error && <ErrorBox>{error}</ErrorBox>}
+      {done && <p className="rounded-xl bg-ok/10 p-3 text-base font-medium text-ok">Mot de passe modifié. Les autres sessions sont déconnectées.</p>}
+      <button className="btn-primary w-full" disabled={busy}>{busy ? 'Enregistrement…' : 'Enregistrer'}</button>
+    </form>
   )
 }

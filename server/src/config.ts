@@ -29,8 +29,10 @@ export const config = {
   freeUploadMb: Number(process.env.FREE_UPLOAD_MB || 2),
   freeCourses: Number(process.env.FREE_COURSES || 1),
   freeMissions: Number(process.env.FREE_MISSIONS || 3),
-  // Backoffice : e-mails des enseignants (adresse vérifiée) qui ont accès à /admin.
-  adminEmails: (process.env.ADMIN_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean),
+  // Premier administrateur, créé au démarrage quand on n'a pas de terminal (Coolify). Ignoré une fois le compte créé, sauf ADMIN_BOOTSTRAP_RESET=1.
+  adminBootstrapEmail: (process.env.ADMIN_BOOTSTRAP_EMAIL || '').trim().toLowerCase(),
+  adminBootstrapPassword: process.env.ADMIN_BOOTSTRAP_PASSWORD || '',
+  adminBootstrapReset: process.env.ADMIN_BOOTSTRAP_RESET === '1',
   // Connexion Google (identifiant client OAuth « Web » de la console Google Cloud).
   googleClientId: process.env.GOOGLE_CLIENT_ID || '',
   // SSO interne : eUniversity fournit l'identité (OpenID Connect) aux autres applications eUniversité.

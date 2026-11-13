@@ -20,10 +20,11 @@ import StudyNew from './pages/StudyNew'
 import Evolution from './pages/Evolution'
 import StudyCourse from './pages/StudyCourse'
 import Admin from './pages/Admin'
+import AdminLogin from './pages/AdminLogin'
 import SsoConnexion from './pages/SsoConnexion'
 import Subscribe from './pages/Subscribe'
 import SubscribeReturn from './pages/SubscribeReturn'
-import { studentToken, teacherToken } from './lib/api'
+import { adminToken, studentToken, teacherToken } from './lib/api'
 
 const Private = ({ children }: { children: React.ReactElement }) => {
   const loc = useLocation()
@@ -34,6 +35,8 @@ const PrivateStudent = ({ children }: { children: React.ReactElement }) => {
   const loc = useLocation()
   return studentToken() ? children : <Navigate to={`/connexion?next=${encodeURIComponent(loc.pathname)}`} replace />
 }
+
+const PrivateAdmin = ({ children }: { children: React.ReactElement }) => (adminToken() ? children : <Navigate to="/admin/connexion" replace />)
 
 export default function App() {
   return (
@@ -57,7 +60,8 @@ export default function App() {
       <Route path="/enseignant/nouveau-mot-de-passe" element={<Reset />} />
       <Route path="/cgu" element={<Legal kind="cgu" />} />
       <Route path="/confidentialite" element={<Legal kind="privacy" />} />
-      <Route path="/admin" element={<Private><Admin /></Private>} />
+      <Route path="/admin/connexion" element={<AdminLogin />} />
+      <Route path="/admin" element={<PrivateAdmin><Admin /></PrivateAdmin>} />
       <Route path="/enseignant" element={<Private><Dashboard /></Private>} />
       <Route path="/enseignant/quiz/:id" element={<Private><QuizEditor /></Private>} />
       <Route path="/enseignant/session/:id" element={<Private><Console /></Private>} />

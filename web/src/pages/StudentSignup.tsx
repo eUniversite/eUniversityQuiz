@@ -3,12 +3,12 @@ import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { api, ApiError, currentRole, homeFor, setStudentToken } from '../lib/api'
 import { ErrorBox, Logo, Screen } from '../components/ui'
 import { GoogleButton } from '../components/GoogleButton'
+import { PasswordInput } from '../components/PasswordInput'
 
 /** Inscription étudiante : un seul écran, aucun paiement. Le compte démarre en plan Découverte et on arrive directement dans Study. */
 export default function StudentSignup() {
   const nav = useNavigate()
   const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [terms, setTerms] = useState(false)
-  const [show, setShow] = useState(false)
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false)
   useEffect(() => { document.title = 'Créer mon compte — eUniversité' }, [])
   const role = currentRole()
@@ -43,10 +43,7 @@ export default function StudentSignup() {
           </div>
           <div>
             <label htmlFor="pw" className="label">Mot de passe</label>
-            <div className="relative">
-              <input id="pw" type={show ? 'text' : 'password'} className="field min-h-[52px] pr-24 text-lg" placeholder="8 caractères minimum" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" maxLength={200} />
-              <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-ink-soft underline">{show ? 'Masquer' : 'Afficher'}</button>
-            </div>
+            <PasswordInput id="pw" className="min-h-[52px] text-lg" placeholder="8 caractères minimum" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" maxLength={200} />
           </div>
           <div className="flex items-start gap-3">
             <input id="terms" type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} className="mt-1 h-5 w-5 shrink-0 accent-[rgb(var(--brand))]" />

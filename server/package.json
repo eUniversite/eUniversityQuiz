@@ -14,7 +14,8 @@
     "seed:genius": "tsx --env-file=../.env src/seed-genius.ts",
     "seed:genius-rbac": "tsx --env-file=../.env src/seed-genius-rbac.ts",
     "test": "vitest run",
-    "load": "tsx --env-file=../.env test/load.ts"
+    "load": "tsx --env-file=../.env test/load.ts",
+    "admin:create": "tsx --env-file=../.env src/create-admin.ts"
   },
   "prisma": {
     "seed": "tsx src/seed.ts"

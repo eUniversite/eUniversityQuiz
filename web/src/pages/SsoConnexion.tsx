@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, setStudentToken, studentToken } from '../lib/api'
 import { ErrorBox, Logo, Screen, Spinner } from '../components/ui'
+import { PasswordInput } from '../components/PasswordInput'
 import { GoogleButton } from '../components/GoogleButton'
 
 const KEYS = ['client_id', 'redirect_uri', 'state', 'nonce', 'code_challenge', 'code_challenge_method'] as const
@@ -52,7 +53,7 @@ export default function SsoConnexion() {
         <form onSubmit={submit} className="card space-y-4">
           <GoogleButton text="signin_with" onDone={() => setLogged(true)} />
           <div><label htmlFor="email" className="label">Adresse e-mail</label><input id="email" type="email" className="field" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required /></div>
-          <div><label htmlFor="pw" className="label">Mot de passe</label><input id="pw" type="password" className="field" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></div>
+          <div><label htmlFor="pw" className="label">Mot de passe</label><PasswordInput id="pw" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></div>
           {error && <ErrorBox>{error}</ErrorBox>}
           <button className="btn-primary w-full" disabled={busy}>{busy ? 'Connexion…' : 'Continuer'}</button>
           <p className="border-t border-line pt-3 text-center text-base text-ink-soft">Pas de compte ? <Link className="font-bold text-ink underline" to="/etudiant/inscription">Créer mon compte</Link></p>

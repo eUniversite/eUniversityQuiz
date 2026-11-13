@@ -381,3 +381,31 @@ model SsoCode {
 
   @@index([expiresAt])
 }
+
+// Comptes du backoffice : séparés des enseignants et des étudiants, créés uniquement en ligne de commande.
+model Admin {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  name              String
+  passwordHash      String
+  passwordChangedAt DateTime?
+  lastLoginAt       DateTime?
+  disabledAt        DateTime?
+  createdAt         DateTime  @default(now())
+  logs              AdminLog[]
+}
+
+// Journal d'audit : connexions et actions sensibles du backoffice.
+model AdminLog {
+  id         String   @id @default(uuid())
+  adminId    String?
+  admin      Admin?   @relation(fields: [adminId], references: [id], onDelete: SetNull)
+  adminEmail String
+  action     String
+  target     String?
+  detail     String?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+}

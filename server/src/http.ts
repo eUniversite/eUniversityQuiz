@@ -25,7 +25,7 @@ export async function authenticateTeacher(token: string | undefined): Promise<{ 
   if (!token) return null
   let payload: { sub?: string; pwd?: number; role?: string }
   try { payload = jwt.verify(token, config.jwtSecret) as typeof payload } catch { return null }
-  if (!payload.sub || payload.role === 'student') return null
+  if (!payload.sub || payload.role) return null // seuls les jetons enseignant (sans rôle) passent : ni étudiant ni admin
   const t = await prisma.teacher.findUnique({ where: { id: payload.sub }, select: { id: true, passwordChangedAt: true } }).catch(() => null)
   if (!t) return null
   const pwdAt = t.passwordChangedAt ? +t.passwordChangedAt : 0
@@ -191,7 +191,7 @@ export function buildRouter() {
   }))
 
   // ---- backoffice ----
-  r.use('/admin', buildAdminRouter(requireTeacher, ah))
+  r.use('/admin', buildAdminRouter(ah))
 
   // ---- SSO interne (OpenID Connect) : eUniversity fournit l'identité aux autres applications eUniversité ----
   r.use('/sso', buildSsoRouter(requireStudent, ah))

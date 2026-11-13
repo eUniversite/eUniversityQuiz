@@ -2,6 +2,10 @@ const KEY = 'euniv:teacher'
 export const teacherToken = () => localStorage.getItem(KEY)
 export const setTeacherToken = (t: string | null) => (t ? localStorage.setItem(KEY, t) : localStorage.removeItem(KEY))
 
+const AKEY = 'euniv:admin'
+export const adminToken = () => localStorage.getItem(AKEY)
+export const setAdminToken = (t: string | null) => (t ? localStorage.setItem(AKEY, t) : localStorage.removeItem(AKEY))
+
 const SKEY = 'euniv:student'
 export const studentToken = () => localStorage.getItem(SKEY)
 export const setStudentToken = (t: string | null) => (t ? localStorage.setItem(SKEY, t) : localStorage.removeItem(SKEY))
@@ -16,9 +20,10 @@ export class ApiError extends Error {
   constructor(public status: number, message: string, public fields: { path: string; message: string }[] = [], public code?: string) { super(message) }
 }
 
-export async function api<T = any>(path: string, opts: { method?: string; body?: unknown; auth?: boolean; as?: Role } = {}): Promise<T> {
+export async function api<T = any>(path: string, opts: { method?: string; body?: unknown; auth?: boolean; as?: Role | 'admin' } = {}): Promise<T> {
   const asStudent = opts.as === 'student'
-  const t = asStudent ? studentToken() : teacherToken()
+  const asAdmin = opts.as === 'admin'
+  const t = asAdmin ? adminToken() : asStudent ? studentToken() : teacherToken()
   let r: Response
   try {
     r = await fetch('/api' + path, {
@@ -31,7 +36,7 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   }
   const j = await r.json().catch(() => ({}))
   if (!r.ok) {
-    if (r.status === 401 && opts.auth !== false && t) { if (asStudent) { setStudentToken(null); location.href = '/connexion' } else { setTeacherToken(null); location.href = '/enseignant/connexion' } }
+    if (r.status === 401 && opts.auth !== false && t) { if (asAdmin) { setAdminToken(null); location.href = '/admin/connexion' } else if (asStudent) { setStudentToken(null); location.href = '/connexion' } else { setTeacherToken(null); location.href = '/enseignant/connexion' } }
     throw new ApiError(r.status, j.error || 'Une erreur est survenue.', j.fields, j.code)
   }
   return j
