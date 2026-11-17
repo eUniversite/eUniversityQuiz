@@ -111,7 +111,7 @@ describe('Backoffice', () => {
 })
 
 describe('Vider les données de test', () => {
-  it('exige mot de passe, aperçu, délai, phrase exacte et jeton à usage unique ; ne touche ni aux admins ni aux enseignants', async () => {
+  it('exige mot de passe, aperçu, délai, phrase exacte et jeton à usage unique ; ne touche jamais aux admins', async () => {
     const a = await admin(); const t = a.token
     const s = await student()
     await teacherToken()
@@ -152,10 +152,28 @@ describe('Vider les données de test', () => {
     expect(await prisma.student.count()).toBe(0)
     expect(await prisma.studentPayment.count()).toBe(0)
     expect((await api(app, 'GET', '/student/me', undefined, s.token)).status).toBe(401)
-    expect(await prisma.teacher.count()).toBeGreaterThan(0)
+    expect(await prisma.teacher.count()).toBeGreaterThan(0) // périmètre « étudiants » : les enseignants restent
     expect((await api(app, 'GET', '/admin/me', undefined, t)).status).toBe(200)
     const logs = (await prisma.adminLog.findMany({ where: { adminEmail: a.email } })).map((l) => l.action)
     expect(logs).toEqual(expect.arrayContaining(['purge.apercu', 'purge.refusee', 'purge']))
+  })
+
+  it('peut aussi supprimer les enseignants (avec leurs quiz) sans toucher aux administrateurs', async () => {
+    const a = await admin()
+    const tt = await teacherToken()
+    await api(app, 'POST', '/quizzes', { title: 'À supprimer', questions: [{ text: 'Q ?', options: ['A', 'B'], correctIndex: 0, durationSec: 10, explanation: 'x' }] }, tt)
+    const p = (await api(app, 'POST', '/admin/purge/preview', { scope: 'teachers', password: PASSWORD }, a.token)).json
+    expect(p.phrase).toBe('VIDER ENSEIGNANTS')
+    expect(p.counts.map((c: any) => c.label)).toEqual(expect.arrayContaining(['Enseignants', 'Quiz']))
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(Date.now() + PURGE_MIN_DELAY_MS + 1000)
+      expect((await api(app, 'POST', '/admin/purge/execute', { scope: 'teachers', password: PASSWORD, token: p.token, phrase: p.phrase }, a.token)).status).toBe(200)
+    } finally { vi.useRealTimers() }
+    expect(await prisma.teacher.count()).toBe(0)
+    expect(await prisma.quiz.count()).toBe(0)
+    expect((await api(app, 'GET', '/admin/me', undefined, a.token)).status).toBe(200)
+    expect(await prisma.admin.count()).toBeGreaterThan(0)
   })
 
   it('peut être désactivée par DISABLE_DATA_PURGE', async () => {

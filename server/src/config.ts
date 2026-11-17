@@ -45,7 +45,7 @@ export const config = {
   geniuspayKey: process.env.GENIUSPAY_API_KEY || '',
   geniuspaySecret: process.env.GENIUSPAY_API_SECRET || '',
   geniuspayWebhookSecret: process.env.GENIUSPAY_WEBHOOK_SECRET || '',
-  geniuspayBase: (process.env.GENIUSPAY_BASE_URL || 'https://geniuspay.ci/api/v1/merchant').replace(/\/+$/, ''),
+  geniuspayBase: (process.env.GENIUSPAY_BASE_URL || 'https://api.geniuspay.ci/v2').replace(/\/+$/, ''),
   // Polling de secours : délai laissé au webhook (secondes) après le retour de l'étudiant, puis s'il n'est jamais revenu.
   billingWebhookGrace: Number(process.env.BILLING_WEBHOOK_GRACE ?? 30),
   billingUnreturnedAfter: Number(process.env.BILLING_UNRETURNED_AFTER ?? 600),

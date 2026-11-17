@@ -101,7 +101,7 @@ export function isDue(p: Pick<StudentPayment, 'returnedAt' | 'createdAt'>, now =
 /** Polling de secours : interroge GeniusPay (sans attendre le webhook, mais après le délai de grâce). */
 export async function settleFromGateway(p: StudentPayment): Promise<'completed' | 'failed' | null> {
   if (p.status !== 'PENDING' || !p.gatewayRef || !gateway.configured() || !isDue(p)) return null
-  const status = await gateway.fetchStatus(p.gatewayRef)
+  const status = await gateway.fetchStatus(p)
   if (status === 'completed') { await fulfil(p.id); return 'completed' }
   if (status && ['failed', 'cancelled', 'expired'].includes(status)) {
     await prisma.studentPayment.updateMany({ where: { id: p.id, status: 'PENDING' }, data: { status: 'FAILED' } })

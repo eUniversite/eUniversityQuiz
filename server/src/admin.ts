@@ -16,6 +16,7 @@ type AH = (fn: (req: Request, res: Response) => Promise<unknown>) => RequestHand
 export const PURGE_SCOPES = {
   students: { label: 'Étudiants et données Study', phrase: 'VIDER ETUDIANTS' },
   live: { label: 'Quiz et sessions Live', phrase: 'VIDER LIVE' },
+  teachers: { label: 'Enseignants, quiz et sessions Live', phrase: 'VIDER ENSEIGNANTS' },
   all: { label: 'Toutes les données', phrase: 'VIDER TOUT' },
 } as const
 type PurgeScope = keyof typeof PURGE_SCOPES
@@ -25,12 +26,14 @@ const purgeChallenges = new Map<string, { adminId: string; scope: PurgeScope; at
 const purgeLimiter = new RateLimiter(6, 60 * 60_000)
 
 async function purgeCounts(scope: PurgeScope) {
-  const st = scope !== 'live', lv = scope !== 'students'
-  const [students, courses, payments, subscriptions, games, quizzes, sessions, participants, answers] = await Promise.all([
+  const st = scope === 'students' || scope === 'all', lv = scope !== 'students', tc = scope === 'teachers' || scope === 'all'
+  const [teachers, students, courses, payments, subscriptions, games, quizzes, sessions, participants, answers] = await Promise.all([
+    tc ? prisma.teacher.count() : 0,
     st ? prisma.student.count() : 0, st ? prisma.studyCourse.count() : 0, st ? prisma.studentPayment.count() : 0, st ? prisma.subscription.count() : 0, st ? prisma.studySession.count() : 0,
     lv ? prisma.quiz.count() : 0, lv ? prisma.session.count() : 0, lv ? prisma.participant.count() : 0, lv ? prisma.answer.count() : 0,
   ])
   const rows: [string, number][] = st ? [['Étudiants', students], ['Cours Study', courses], ['Paiements', payments], ['Abonnements', subscriptions], ['Parties jouées', games]] : []
+  if (tc) rows.push(['Enseignants', teachers])
   if (lv) rows.push(['Quiz', quizzes], ['Sessions Live', sessions], ['Participants', participants], ['Réponses', answers])
   return rows.map(([label, n]) => ({ label, n }))
 }
@@ -105,8 +108,8 @@ export function buildAdminRouter(ah: AH) {
     res.json({ total, page: p, pageSize: PAGE, items: rows })
   }))
 
-  // ---- Zone dangereuse : vider les données de test. Comptes enseignants, administrateurs et journal d'audit ne sont JAMAIS supprimés. ----
-  const purgeBody = z.object({ scope: z.enum(['students', 'live', 'all']), password: z.string().min(1).max(200) })
+  // ---- Zone dangereuse : vider les données de test. Comptes administrateurs et journal d'audit ne sont JAMAIS supprimés (le backoffice est indépendant des enseignants). ----
+  const purgeBody = z.object({ scope: z.enum(['students', 'live', 'teachers', 'all']), password: z.string().min(1).max(200) })
   const checkPassword = async (req: Request, password: string) => {
     const a = await prisma.admin.findUniqueOrThrow({ where: { id: req.adminId } })
     return bcrypt.compare(password, a.passwordHash)
@@ -142,8 +145,9 @@ export function buildAdminRouter(ah: AH) {
     const counts = await purgeCounts(d.scope)
     await auditLog(who(req), 'purge', req, d.scope, counts.map((x) => `${x.label}: ${x.n}`).join(', ')) // écrit AVANT la suppression
     await prisma.$transaction(async (tx) => {
-      if (d.scope !== 'live') { await tx.ssoCode.deleteMany(); await tx.student.deleteMany() }      // les cascades emportent cours, questions, parties, paiements, abonnements
-      if (d.scope !== 'students') { await tx.quiz.deleteMany(); await tx.session.deleteMany() }       // les cascades emportent questions, participants, réponses
+      if (d.scope === 'students' || d.scope === 'all') { await tx.ssoCode.deleteMany(); await tx.student.deleteMany() } // les cascades emportent cours, questions, parties, paiements, abonnements
+      if (d.scope !== 'students') { await tx.quiz.deleteMany(); await tx.session.deleteMany() }                        // les cascades emportent questions, participants, réponses
+      if (d.scope === 'teachers' || d.scope === 'all') await tx.teacher.deleteMany()                                   // jetons d'action emportés par cascade
     }, { timeout: 120_000 })
     if (d.scope !== 'students') engine.resetCache()
     res.json({ ok: true, counts })
@@ -232,7 +236,7 @@ export function buildAdminRouter(ah: AH) {
     if (!p) return res.status(404).json({ error: 'Paiement introuvable.' })
     if (p.status !== 'PENDING') return res.json({ status: p.status })
     if (!p.gatewayRef || !gateway.configured()) return res.status(409).json({ error: 'Ce paiement ne peut pas être vérifié chez GeniusPay.' })
-    const remote = await gateway.fetchStatus(p.gatewayRef)
+    const remote = await gateway.fetchStatus(p)
     if (!remote) return res.status(502).json({ error: 'GeniusPay ne répond pas.' })
     await auditLog(who(req), 'paiement.verifier', req, p.reference, `GeniusPay : ${remote}`)
     if (remote === 'completed') await fulfil(p.id)

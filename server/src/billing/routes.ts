@@ -49,22 +49,27 @@ export function buildBillingRouter(requireStudent: RequestHandler, ah: AH) {
 export const geniuspayWebhook: RequestHandler = async (req, res, next) => {
   try {
     const raw = (req as Request & { rawBody?: Buffer }).rawBody ?? Buffer.from('')
-    if (!verifyWebhookSignature(raw, req.header('X-Webhook-Signature'), req.header('X-Webhook-Timestamp'), req.ip)) return res.status(401).json({ error: 'Signature invalide.' })
+    const signature = req.header('X-GeniusPay-Signature') ?? req.header('X-Webhook-Signature')
+    const timestamp = req.header('X-GeniusPay-Timestamp') ?? req.header('X-Webhook-Timestamp')
+    if (!verifyWebhookSignature(raw, signature, timestamp, req.ip)) return res.status(401).json({ error: 'Signature invalide.' })
 
-    const event = String(req.body?.event ?? req.header('X-Webhook-Event') ?? '')
-    if (!event.startsWith('payment.')) return res.json({ success: true, message: 'event ignored' }) // ex. webhook.test du dashboard
+    // v2 : { event_type: 'transaction.completed', transaction_ref, … } ; ancienne API : { event: 'payment.success', data: { transaction } }.
+    const body = req.body ?? {}
+    const event = String(body.event_type ?? body.event ?? req.header('X-GeniusPay-Event') ?? req.header('X-Webhook-Event') ?? '')
+    if (!/^(transaction|payment)\./.test(event)) return res.json({ success: true, message: 'event ignored' }) // ex. webhook.test du dashboard
 
-    const tx = req.body?.data?.transaction ?? {}
-    const ref = typeof tx.reference === 'string' ? tx.reference : undefined
-    const mine = tx.external_reference ?? tx.metadata?.payment_reference
-    const payment = await prisma.studentPayment.findFirst({ where: { OR: [...(ref ? [{ gatewayRef: ref }] : []), ...(typeof mine === 'string' ? [{ reference: mine }] : [])] } })
+    const tx = body.data?.transaction ?? body.data ?? {}
+    const mine = body.transaction_ref ?? tx.transaction_ref ?? tx.external_reference ?? tx.metadata?.payment_reference ?? body.metadata?.payment_reference
+    const ids = [body.transaction_id, body.public_reference, tx.reference, tx.transaction_id].filter((x): x is string => typeof x === 'string' && x.length > 0)
+    const payment = await prisma.studentPayment.findFirst({ where: { OR: [...ids.map((gatewayRef) => ({ gatewayRef })), ...(typeof mine === 'string' ? [{ reference: mine }] : [])] } })
     if (!payment) return res.status(404).json({ error: 'Paiement introuvable.' })
 
-    if (event === 'payment.success' || tx.status === 'completed') {
+    const status = String(body.status ?? tx.status ?? '')
+    if (/^(transaction\.completed|payment\.success)$/.test(event) || status === 'completed') {
       const done = await fulfil(payment.id)
       return res.json({ success: true, message: done ? 'activated' : 'already processed' })
     }
-    if (['payment.failed', 'payment.cancelled'].includes(event)) {
+    if (/^(transaction|payment)\.(failed|cancelled|canceled|expired)$/.test(event)) {
       await prisma.studentPayment.updateMany({ where: { id: payment.id, status: 'PENDING' }, data: { status: 'FAILED' } })
     }
     res.json({ success: true })

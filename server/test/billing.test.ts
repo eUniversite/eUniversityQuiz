@@ -4,7 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { config } from '../src/config.js'
 import { prisma } from '../src/db.js'
 import { addMonths, isDue } from '../src/billing/index.js'
-import { gateway } from '../src/billing/geniuspay.js'
+import { gateway, GatewayError } from '../src/billing/geniuspay.js'
 import { api, startApp, type App } from './helpers.js'
 
 const SECRET = 'whsec_test'
@@ -165,6 +165,82 @@ describe('Abonnement', () => {
     vi.spyOn(gateway, 'configured').mockReturnValue(false)
     expect((await api(app, 'POST', '/billing/checkout', { plan: 'MONTHLY' }, s.token)).status).toBe(201)
     expect((await api(app, 'GET', '/study/courses', undefined, s.token)).status).toBe(200)
+  })
+})
+
+describe('API GeniusPay v2', () => {
+  const V2 = 'https://api.geniuspay.ci/v2', V1 = 'https://geniuspay.ci/api/v1/merchant'
+  const reply = (status: number, json: unknown) => new Response(JSON.stringify(json), { status, headers: { 'content-type': 'application/json' } })
+  const input = { amount: 1000, reference: 'STUDY-abc', description: 'Abonnement', customer: { name: 'Awa', email: 'awa@x.fr' }, successUrl: 'https://s/ok', errorUrl: 'https://s/ko', metadata: { payment_reference: 'STUDY-abc' } }
+  const original = { base: config.geniuspayBase, key: config.geniuspayKey, secret: config.geniuspaySecret }
+  afterEach(() => Object.assign(config, { geniuspayBase: original.base, geniuspayKey: original.key, geniuspaySecret: original.secret }))
+
+  it('crée le paiement en v2 : Bearer sk_, champs du contrat, checkout_url', async () => {
+    Object.assign(config, { geniuspayBase: V2, geniuspayKey: '', geniuspaySecret: 'sk_sandbox_x' })
+    expect(gateway.configured()).toBe(true) // en v2, la clé secrète suffit
+    const f = vi.spyOn(globalThis, 'fetch').mockResolvedValue(reply(201, { transaction_id: 'tx-1', checkout_url: 'https://pay.geniuspay.ci/c/1' }))
+    expect(await gateway.createCheckout(input)).toEqual({ checkoutUrl: 'https://pay.geniuspay.ci/c/1', gatewayRef: 'tx-1' })
+    const [url, init] = f.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe(`${V2}/payments/initiate`)
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer sk_sandbox_x')
+    expect(JSON.parse(String(init.body))).toMatchObject({ reference: 'STUDY-abc', amount: 1000, currency: 'XOF', country_code: 'CI', idempotency_key: 'STUDY-abc', success_url: 'https://s/ok', cancel_url: 'https://s/ko', customer_email: 'awa@x.fr' })
+  })
+
+  it('v2 : sans identifiant renvoyé, la référence du paiement fait foi ; une erreur renvoie son message', async () => {
+    Object.assign(config, { geniuspayBase: V2, geniuspaySecret: 'sk_sandbox_x' })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(reply(201, { checkout_url: 'https://pay/2' }))
+    expect((await gateway.createCheckout(input)).gatewayRef).toBe('STUDY-abc')
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(reply(422, { error: 'Montant invalide' }))
+    await expect(gateway.createCheckout(input)).rejects.toThrow(new GatewayError('Montant invalide'))
+  })
+
+  it('v2 : le statut se lit par notre référence ; l’ancienne API par l’identifiant GeniusPay', async () => {
+    Object.assign(config, { geniuspayBase: V2, geniuspaySecret: 'sk_sandbox_x' })
+    const f = vi.spyOn(globalThis, 'fetch').mockResolvedValue(reply(200, { status: 'completed' }))
+    expect(await gateway.fetchStatus({ reference: 'STUDY-abc', gatewayRef: 'tx-1' })).toBe('completed')
+    expect(f.mock.calls[0][0]).toBe(`${V2}/payments/STUDY-abc/status`)
+    Object.assign(config, { geniuspayBase: V1, geniuspayKey: 'pk_x' })
+    f.mockResolvedValue(reply(200, { data: { status: 'pending' } }))
+    expect(await gateway.fetchStatus({ reference: 'STUDY-abc', gatewayRef: 'MTX-9' })).toBe('pending')
+    expect(f.mock.calls[1][0]).toBe(`${V1}/payments/MTX-9`)
+    expect(((f.mock.calls[1][1] as RequestInit).headers as Record<string, string>)['X-API-Key']).toBe('pk_x')
+  })
+
+  it('webhook v2 : signature « t=…,v1=… », transaction.completed, retrouve le paiement par transaction_ref', async () => {
+    const s = await student()
+    mockGateway(ref('V2WH'))
+    const { json: { paymentId } } = await api(app, 'POST', '/billing/checkout', { plan: 'MONTHLY' }, s.token)
+    const reference = (await prisma.studentPayment.findUniqueOrThrow({ where: { id: paymentId } })).reference
+    const send = (event: string, sig?: (ts: string, raw: string) => string) => {
+      const raw = JSON.stringify({ event_type: event, transaction_ref: reference, status: event === 'transaction.completed' ? 'completed' : 'failed' })
+      const ts = String(Math.floor(Date.now() / 1000))
+      const v1 = sig ? sig(ts, raw) : crypto.createHmac('sha256', SECRET).update(`${ts}.${raw}`).digest('hex')
+      return fetch(`${app.base}/api/billing/webhook/geniuspay`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-geniuspay-timestamp': ts, 'x-geniuspay-signature': `t=${ts},v1=${v1}`, 'x-geniuspay-delivery': 'd-1' }, body: raw })
+    }
+    expect((await send('transaction.completed', () => 'deadbeef')).status).toBe(401)
+    expect((await send('transaction.completed', (_ts, raw) => crypto.createHmac('sha256', 'autre-secret').update(`${_ts}.${raw}`).digest('hex'))).status).toBe(401)
+    expect((await api(app, 'GET', '/student/me', undefined, s.token)).json.limits.plan).toBe('free')
+    expect((await send('transaction.completed')).status).toBe(200)
+    expect((await api(app, 'GET', '/student/me', undefined, s.token)).json.limits.plan).toBe('paid')
+    expect(await prisma.subscription.count({ where: { studentId: s.id } })).toBe(1)
+    expect((await send('transaction.completed')).status).toBe(200) // livraison répétée : aucun doublon
+    expect(await prisma.subscription.count({ where: { studentId: s.id } })).toBe(1)
+  })
+
+  it('webhook v2 : transaction.failed marque l’échec, un événement inconnu est ignoré', async () => {
+    const s = await student()
+    mockGateway(ref('V2FAIL'))
+    const { json: { paymentId } } = await api(app, 'POST', '/billing/checkout', { plan: 'MONTHLY' }, s.token)
+    const reference = (await prisma.studentPayment.findUniqueOrThrow({ where: { id: paymentId } })).reference
+    const send = (event: string) => {
+      const raw = JSON.stringify({ event_type: event, transaction_ref: reference })
+      const ts = String(Math.floor(Date.now() / 1000))
+      return fetch(`${app.base}/api/billing/webhook/geniuspay`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-geniuspay-timestamp': ts, 'x-geniuspay-signature': `t=${ts},v1=${crypto.createHmac('sha256', SECRET).update(`${ts}.${raw}`).digest('hex')}` }, body: raw })
+    }
+    expect((await send('payout.succeeded')).status).toBe(200)
+    expect((await prisma.studentPayment.findUniqueOrThrow({ where: { id: paymentId } })).status).toBe('PENDING')
+    expect((await send('transaction.failed')).status).toBe(200)
+    expect((await prisma.studentPayment.findUniqueOrThrow({ where: { id: paymentId } })).status).toBe('FAILED')
   })
 })
 

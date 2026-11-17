@@ -284,13 +284,14 @@ function Account() {
   )
 }
 
-type Scope = 'students' | 'live' | 'all'
+type Scope = 'students' | 'live' | 'teachers' | 'all'
 interface PurgeStatus { enabled: boolean; minDelaySec: number; scopes: Record<Scope, { label: string; phrase: string }> }
 interface Preview { token: string; phrase: string; minDelaySec: number; expiresInSec: number; counts: { label: string; n: number }[] }
 const SCOPE_HELP: Record<Scope, string> = {
   students: 'Tous les comptes étudiants, leurs cours, questions, parties, paiements et abonnements.',
   live: 'Tous les quiz et sessions Live, avec leurs participants et réponses. Les comptes enseignants sont conservés.',
-  all: 'Les deux ensembles ci-dessus.',
+  teachers: 'Tous les comptes enseignants, avec leurs quiz et sessions Live. Les comptes créés par TEACHER_* au démarrage sont recréés au prochain déploiement.',
+  all: 'Étudiants, enseignants et tout ce qui s’y rattache.',
 }
 
 /** Vider les données de test : volontairement long (aperçu, délai imposé, phrase à recopier, mot de passe demandé deux fois). */
@@ -331,7 +332,7 @@ function DangerZone() {
       {!status.enabled ? <p className="mt-6 rounded-xl bg-bad/10 p-4 text-base font-medium text-bad">Désactivée sur ce serveur (DISABLE_DATA_PURGE).</p> : step === 'intro' && (<>
         <ul className="mt-6 list-disc space-y-2 pl-5 text-base">
           <li>L’action est <strong>irréversible</strong> : il n’y a pas d’annulation ni de corbeille.</li>
-          <li>Les <strong>comptes administrateurs</strong>, les <strong>comptes enseignants</strong> et le <strong>journal d’audit</strong> ne sont jamais supprimés.</li>
+          <li>Les <strong>comptes administrateurs</strong> et le <strong>journal d’audit</strong> ne sont jamais supprimés : le backoffice est indépendant des comptes enseignants et étudiants.</li>
           <li>Faites une sauvegarde de la base avant de continuer si le moindre doute subsiste.</li>
           <li>Il faudra : choisir ce qui est supprimé, saisir votre mot de passe, attendre {status.minDelaySec} secondes, recopier une phrase, puis ressaisir votre mot de passe.</li>
         </ul>
