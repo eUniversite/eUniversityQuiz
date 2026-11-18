@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aperçu des assets · Course des savoirs</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #FFF0D5; font-family: system-ui, sans-serif; }
+    canvas { width: 100%; height: 100%; display: block; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "@babylonjs/core": "https://cdn.jsdelivr.net/npm/@babylonjs/core@8.56.0/index.js",
+        "@babylonjs/core/": "https://cdn.jsdelivr.net/npm/@babylonjs/core@8.56.0/",
+        "@babylonjs/loaders/": "https://cdn.jsdelivr.net/npm/@babylonjs/loaders@8.56.0/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <script type="module">
+    import {
+      Engine, Scene, Vector3, Color3, Color4, HemisphericLight, DirectionalLight, ArcRotateCamera,
+      MeshBuilder, StandardMaterial, DynamicTexture, LoadAssetContainerAsync,
+    } from '@babylonjs/core';
+    import '@babylonjs/loaders/glTF/2.0/index.js';
+
+    // Planche d'aperçu : chaque asset est ramené à une hauteur commune pour être comparé
+    const ASSETS = [
+      ['man_character', 'Personnage (Man) CC0'], ['cap_google_a', 'Toque A (CC-BY)'], ['cap_google_b', 'Toque B (CC-BY)'], ['cap_google_c', 'Toque C (CC-BY)'],
+      ['bld_kenney_large_1', 'Kenney Large 1'], ['bld_kenney_large_2', 'Kenney Large 2'], ['bld_kenney_large_3', 'Kenney Large 3'], ['bld_kenney_small', 'Kenney Small'],
+      ['bld_kenney_skyscraper', 'Kenney Skyscraper'], ['bld_quat_big', 'Quaternius Big'], ['bld_quat_building', 'Quaternius Building'], ['bld_kay_building', 'Kay Lousberg Building'],
+      ['bld_quat_townhouse', 'Quaternius Town House'], ['tree_trees', 'Arbres (Quaternius)'], ['tree_pine', 'Pins (Quaternius)'], ['bush_a', 'Buisson'],
+      ['bush_flowers', 'Buisson fleuri'], ['hedge', 'Haie'], ['bench_quat_a', 'Banc Q-A'], ['bench_quat_b', 'Banc Q-B'],
+      ['bench_kay', 'Banc Kay'], ['light_quat_a', 'Lampadaire Q-A'], ['light_kay', 'Lampadaire Kay'], ['light_quat_b', 'Lampadaire Q-B'],
+      ['fence_quat', 'Clôture'], ['barrier_large', 'Barrière'], ['fountain', 'Fontaine'], ['flag', 'Drapeau'],
+      ['banner_a', 'Bannière A'], ['banner_b', 'Bannière B'], ['book_open_a', 'Livre ouvert'], ['book_alperen', 'Livre'],
+    ];
+    const only = new URLSearchParams(location.search).get('list');
+    const LIST = only ? ASSETS.concat([['wizard_robe', 'Wizard robe (CC0)'], ['wizard_animated', 'Animated Wizard (CC-BY)']]).filter(([f]) => only.split(',').includes(f)) : ASSETS;
+    const COLS = only ? LIST.length : 8;
+    const CELL = 7;
+    const canvas = document.getElementById('c');
+    const engine = new Engine(canvas, true, { preserveDrawingBuffer: true });
+    const scene = new Scene(engine);
+    scene.clearColor = new Color4(1, 0.94, 0.835, 1);
+    new HemisphericLight('h', new Vector3(0.3, 1, 0.2), scene).intensity = 1;
+    new DirectionalLight('d', new Vector3(-0.4, -1, 0.5), scene).intensity = 0.6;
+
+    const rows = Math.ceil(LIST.length / COLS);
+    const camera = new ArcRotateCamera('cam', -Math.PI / 2, 1.05, 70, new Vector3(((COLS - 1) * CELL) / 2, 1.5, -((rows - 1) * CELL) / 2), scene);
+    camera.fov = 0.55;
+    if (only) camera.radius = 26;
+
+    for (const [i, [file, label]] of LIST.entries()) {
+      const x = (i % COLS) * CELL;
+      const z = -Math.floor(i / COLS) * CELL;
+      const container = await LoadAssetContainerAsync(`./assets/${file}.glb`, scene);
+      container.animationGroups.forEach((g) => g.stop());
+      container.addAllToScene();
+      const root = container.meshes[0];
+      const box = root.getHierarchyBoundingVectors(true);
+      const size = box.max.subtract(box.min);
+      const k = 4.5 / Math.max(size.x, size.y, size.z, 0.001);
+      root.scaling.scaleInPlace(k);
+      root.computeWorldMatrix(true);
+      const b2 = root.getHierarchyBoundingVectors(true);
+      root.position.x += x - (b2.min.x + b2.max.x) / 2;
+      root.position.z += z - (b2.min.z + b2.max.z) / 2;
+      root.position.y += -b2.min.y;
+
+      const tex = new DynamicTexture('t' + i, { width: 512, height: 96 }, scene, false);
+      const ctx = tex.getContext();
+      ctx.fillStyle = '#19150E';
+      ctx.fillRect(0, 0, 512, 96);
+      ctx.fillStyle = '#FFF0D5';
+      ctx.font = 'bold 40px system-ui';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, 256, 50);
+      tex.update();
+      const plane = MeshBuilder.CreatePlane('l' + i, { width: 5.6, height: 1.05 }, scene);
+      plane.position.set(x, 0.55, z - 3.2);
+      plane.rotation.x = Math.PI / 2.6;
+      const m = new StandardMaterial('m' + i, scene);
+      m.diffuseTexture = tex; m.emissiveTexture = tex; m.disableLighting = true; m.backFaceCulling = false;
+      plane.material = m;
+    }
+    engine.runRenderLoop(() => scene.render());
+    window.__ready = true;
+  </script>
+</body>
+</html>

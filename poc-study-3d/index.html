@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>eUniversité Study · Course des savoirs</title>
+  <style>
+    :root {
+      --orange: #FFA000;
+      --cream: #FFF0D5;
+      --ink: #19150E;
+      --ok: #2f8a4b;
+      --ko: #c0392b;
+      --line: rgba(25, 21, 14, .14);
+    }
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; color: var(--ink);
+      background: #19150E;
+    }
+    canvas { width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+
+    .card {
+      background: rgba(255, 240, 213, .95); border: 2px solid var(--orange);
+      border-radius: 16px; padding: 10px 16px;
+      box-shadow: 0 6px 20px rgba(25, 21, 14, .18);
+    }
+
+    #top {
+      position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+      width: min(980px, calc(100% - 24px)); display: grid; gap: 8px; pointer-events: none;
+    }
+    #hud { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; font-size: 15px; font-weight: 600; }
+    #hud .title { font-weight: 800; }
+    /* Protections : petits carrés orange cochés, comme dans le Pitch Board */
+    .lives .life {
+      display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+      margin-right: 4px; border-radius: 6px; background: var(--orange); color: var(--ink);
+      font-size: 14px; font-weight: 800; vertical-align: middle;
+    }
+    .lives .life.lost { background: transparent; border: 2px solid rgba(25, 21, 14, .25); color: transparent; box-sizing: border-box; }
+
+    /* Progression du parcours : les pastilles marquent les portes de question à venir */
+    #progress { position: relative; height: 10px; border-radius: 6px; background: rgba(255, 240, 213, .9); border: 1px solid var(--line); }
+    #progress .fill { height: 100%; width: 0; border-radius: 6px; background: var(--orange); }
+    #progress .tick {
+      position: absolute; top: -4px; width: 16px; height: 16px; margin-left: -8px; box-sizing: border-box;
+      border-radius: 50%; background: var(--cream); border: 3px solid var(--ink);
+    }
+    #progress .tick.ok { border-color: var(--ok); background: var(--ok); }
+    #progress .tick.ko { border-color: var(--ko); background: var(--ko); }
+
+    #question { padding: 12px 16px 14px; }
+    #question[hidden] { display: none; }
+    #q-meta { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; color: #a86400; }
+    #q-text { font-size: clamp(20px, 2.8vw, 30px); font-weight: 800; margin: 4px 0 12px; line-height: 1.2; }
+    #q-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .opt {
+      display: flex; align-items: center; gap: 10px; background: #fff;
+      border-radius: 12px; padding: 8px 10px; border: 2px solid var(--ink);
+      font-size: clamp(14px, 1.7vw, 19px); font-weight: 600; line-height: 1.2;
+    }
+    .chip {
+      flex: none; width: 32px; height: 32px; border-radius: 50%;
+      background: var(--orange); color: var(--ink); font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .lane-name { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #7a6a4f; }
+    @media (max-width: 720px) { #q-options { grid-template-columns: 1fr; } }
+
+
+    /* Question : panneau en bloc épais posé sur la scène floutée ; la course est en pause derrière */
+    .overlay.quiz {
+      z-index: 20; align-items: flex-start; justify-content: center; overflow: auto;
+      padding: clamp(10px, 4vh, 36px) 14px 14px;
+      background: linear-gradient(180deg, rgba(25, 21, 14, .62) 0%, rgba(25, 21, 14, .38) 62%, rgba(25, 21, 14, .05) 100%);
+      backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+    }
+    .quiz .sheet {
+      width: min(900px, 100%); background: var(--cream); border: 4px solid var(--ink); border-radius: 14px;
+      box-shadow: 8px 8px 0 var(--ink); padding: 0 0 clamp(14px, 2.6vw, 24px); text-align: center;
+      animation: pop .28s cubic-bezier(.2, 1.4, .4, 1);
+    }
+    @keyframes pop { from { transform: scale(.9) translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+    #q-meta {
+      background: var(--orange); border-bottom: 4px solid var(--ink); border-radius: 10px 10px 0 0;
+      padding: 9px 14px; font-size: clamp(12px, 2vw, 15px); text-transform: uppercase; letter-spacing: .12em; font-weight: 900; color: var(--ink);
+    }
+    #q-text { font-size: clamp(22px, 4.4vw, 42px); font-weight: 900; line-height: 1.15; color: var(--ink); padding: clamp(14px, 3vw, 26px) clamp(14px, 3vw, 28px) clamp(10px, 2vw, 18px); }
+    #q-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(10px, 2vw, 16px); padding: 0 clamp(12px, 2.4vw, 22px); }
+    .answer {
+      font: inherit; color: var(--ink); cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 10px;
+      padding: clamp(12px, 2vw, 18px); border-radius: 8px; border: 3px solid var(--ink); background: #fff;
+      box-shadow: 0 6px 0 var(--ink); transition: transform .08s, box-shadow .08s, background .08s;
+      font-size: clamp(16px, 2.3vw, 24px); font-weight: 800; line-height: 1.2;
+    }
+    .answer:hover, .answer:focus-visible { background: #fff3cf; transform: translateY(-2px); box-shadow: 0 8px 0 var(--ink); outline: none; }
+    .answer:active { transform: translateY(5px); box-shadow: 0 1px 0 var(--ink); }
+    .answer .tag { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; color: #7a6a4f; }
+    .answer .chip { width: 40px; height: 40px; border-radius: 6px; border: 3px solid var(--ink); font-size: 22px; }
+    #q-hint { margin-top: clamp(10px, 1.6vw, 16px); font-size: 12px; color: #7a6a4f; font-weight: 700; }
+    @media (max-width: 760px) {
+      #q-options { grid-template-columns: 1fr; }
+      .answer { flex-direction: row; align-items: center; }
+      .answer .tag { flex: none; }
+      .answer .tag span:last-child { display: none; }
+    }
+
+    #s-meta {
+      background: var(--orange); border-bottom: 4px solid var(--ink); border-radius: 10px 10px 0 0;
+      padding: 9px 14px; font-size: clamp(13px, 2.2vw, 16px); text-transform: uppercase; letter-spacing: .12em; font-weight: 900;
+    }
+    #s-cards { display: flex; gap: clamp(10px, 2vw, 18px); justify-content: center; padding: clamp(14px, 3vw, 24px) clamp(12px, 2.4vw, 22px) clamp(10px, 2vw, 16px); }
+    .who {
+      font: inherit; color: var(--ink); cursor: pointer; flex: 1 1 0; max-width: 280px; display: flex; flex-direction: column; align-items: center;
+      padding: 8px 8px 12px; background: #fff; border: 3px solid var(--ink); border-radius: 8px; box-shadow: 0 6px 0 var(--ink);
+      transition: transform .08s, box-shadow .08s, background .08s;
+    }
+    .who img { width: 100%; max-height: min(42vh, 300px); object-fit: contain; }
+    .who b { font-size: clamp(18px, 3vw, 26px); font-weight: 900; }
+    .who span { font-size: 12px; font-weight: 700; color: #7a6a4f; }
+    .who:hover { transform: translateY(-2px); box-shadow: 0 8px 0 var(--ink); }
+    .who.on { background: #ffe3a1; border-color: var(--ink); box-shadow: 0 6px 0 var(--orange), 0 6px 0 3px var(--ink); transform: translateY(-4px); }
+    #select .primary { font-size: 18px; border: 3px solid var(--ink); border-radius: 8px; box-shadow: 0 5px 0 var(--ink); padding: 10px 40px; margin-top: 4px; }
+    #select .primary:active { transform: translateY(4px); box-shadow: 0 1px 0 var(--ink); }
+    #select .sheet { text-align: center; }
+    #sound {
+      position: fixed; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 30;
+      width: 44px; height: 44px; font-size: 20px; line-height: 1; cursor: pointer;
+      background: var(--cream); border: 3px solid var(--ink); border-radius: 8px; box-shadow: 0 4px 0 var(--ink);
+    }
+    #sound:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+    #hint {
+      position: fixed; bottom: calc(10px + env(safe-area-inset-bottom)); left: 12px; right: 12px; font-size: 12px;
+      color: var(--ink); background: rgba(255, 240, 213, .8); border-radius: 8px; padding: 4px 8px;
+      pointer-events: none; width: fit-content; max-width: calc(100% - 24px);
+    }
+
+    #banner {
+      position: fixed; left: 50%; bottom: 52px; transform: translateX(-50%);
+      width: min(640px, calc(100% - 32px)); pointer-events: none; font-size: 16px; line-height: 1.45;
+    }
+    #banner[hidden] { display: none; }
+    #banner.ok { border-color: var(--ok); }
+    #banner.ko { border-color: var(--ko); }
+    #banner .headline { font-weight: 800; margin-bottom: 4px; }
+    #banner.ok .headline { color: var(--ok); }
+    #banner.ko .headline { color: var(--ko); }
+    #banner .source { display: block; margin-top: 6px; font-size: 13px; color: #7a6a4f; }
+
+    #flash {
+      position: fixed; inset: 0; pointer-events: none; opacity: 0;
+      background: radial-gradient(ellipse at center, rgba(192, 57, 43, 0) 40%, rgba(192, 57, 43, .55) 100%);
+    }
+    #flash.on { animation: flash .5s ease-out; }
+    @keyframes flash { from { opacity: 1; } to { opacity: 0; } }
+
+    .overlay {
+      position: fixed; inset: 0; background: rgba(25, 21, 14, .55);
+      display: flex; align-items: center; justify-content: center; padding: 16px;
+    }
+    .overlay[hidden] { display: none; }
+    .panel { width: min(580px, 100%); max-height: 92vh; overflow: auto; }
+    .panel h2 { margin: 0 0 6px; font-size: 22px; }
+    .panel .score { color: #5b4d36; margin: 0 0 12px; font-weight: 600; }
+    .results { list-style: none; padding: 0; margin: 12px 0; }
+    .results li { padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 15px; line-height: 1.35; }
+    .results .ok { color: var(--ok); }
+    .results .ko { color: var(--ko); }
+    .credits { font-size: 11px; color: #7a6a4f; line-height: 1.4; margin: 10px 0 0; }
+    .actions { margin-top: 14px; display: flex; justify-content: flex-end; }
+    button.primary {
+      font: inherit; font-weight: 800; padding: 11px 20px; border: 0; border-radius: 12px;
+      background: var(--orange); color: var(--ink); cursor: pointer;
+    }
+    #loading { background: var(--cream); flex-direction: column; gap: 10px; font-weight: 700; }
+    #loading .bar { width: min(280px, 70vw); height: 8px; border-radius: 6px; background: rgba(25, 21, 14, .15); overflow: hidden; }
+    #loading .bar i { display: block; height: 100%; width: 0; background: var(--orange); }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "@babylonjs/core": "https://cdn.jsdelivr.net/npm/@babylonjs/core@8.56.0/index.js",
+        "@babylonjs/core/": "https://cdn.jsdelivr.net/npm/@babylonjs/core@8.56.0/",
+        "@babylonjs/loaders/": "https://cdn.jsdelivr.net/npm/@babylonjs/loaders@8.56.0/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="scene" tabindex="0"></canvas>
+  <div id="flash"></div>
+
+  <div id="top">
+    <div id="hud" class="card">
+      <span class="title" id="mission-title"></span>
+      <span class="lives" id="lives" aria-label="Protections"></span>
+      <span id="stats"></span>
+    </div>
+    <div id="progress"><div class="fill" id="progress-fill"></div></div>
+  </div>
+
+  <button id="sound" type="button" aria-label="Couper le son">🔊</button>
+  <div id="banner" class="card" hidden></div>
+  <div id="hint">← → : voie · ↑ : sauter (piles de livres) · ↓ : glisser (banderole) · barrières : changer de voie · P : pause · M : son</div>
+
+  <div id="loading" class="overlay">
+    <div>Chargement du campus…</div>
+    <div class="bar"><i id="loading-bar"></i></div>
+  </div>
+
+  <div id="quiz" class="overlay quiz" hidden>
+    <div class="sheet">
+      <div id="q-meta"></div>
+      <div id="q-text"></div>
+      <div id="q-options"></div>
+      <div id="q-hint">Touchez une réponse · ou touches 1, 2, 3</div>
+    </div>
+  </div>
+
+  <div id="select" class="overlay quiz" hidden>
+    <div class="sheet">
+      <div id="s-meta">Choisis ton étudiant</div>
+      <div id="s-cards">
+        <button class="who" data-who="boy" type="button">
+          <img src="assets/portrait-boy.png" alt="" /><b>Kofi</b><span>Toge marine · étole orange</span>
+        </button>
+        <button class="who" data-who="girl" type="button">
+          <img src="assets/portrait-girl.png" alt="" /><b>Ama</b><span>Tee-shirt Genius Pay · twists</span>
+        </button>
+      </div>
+      <button class="primary" id="select-go" type="button">Jouer</button>
+      <div id="q-hint">Touchez un personnage · ou touches 1, 2 · Entrée pour jouer</div>
+    </div>
+  </div>
+
+  <div id="pause" class="overlay" hidden>
+    <div class="card panel"><h2>Pause</h2><p class="score">Appuyez sur P pour reprendre.</p></div>
+  </div>
+
+  <div id="bilan" class="overlay" hidden>
+    <div class="card panel">
+      <h2 id="bilan-title"></h2>
+      <p class="score" id="bilan-score"></p>
+      <ul class="results" id="bilan-list"></ul>
+      <div class="actions">
+        <button class="primary" id="bilan-restart">Rejouer</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./game.js"></script>
+</body>
+</html>

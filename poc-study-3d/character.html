@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Atelier personnage · eUniversité Study</title>
+  <style>
+    :root { --orange: #FFA000; --cream: #FFF0D5; --ink: #19150E; }
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; color: var(--ink);
+      background: radial-gradient(ellipse at 50% 35%, #ffe7bd 0%, #f6c981 55%, #e9a94d 100%);
+    }
+    canvas { width: 100%; height: 100%; display: block; outline: none; touch-action: none; }
+    .card { background: rgba(255, 240, 213, .94); border: 2px solid var(--orange); border-radius: 16px; box-shadow: 0 6px 20px rgba(25, 21, 14, .18); }
+    #title { position: fixed; top: 14px; left: 14px; padding: 10px 16px; }
+    #title b { display: block; font-size: 18px; }
+    #title span { font-size: 13px; opacity: .75; }
+    #bar {
+      position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); padding: 10px; display: flex; flex-wrap: wrap;
+      gap: 8px; justify-content: center; width: min(760px, calc(100% - 28px));
+    }
+    button {
+      font: inherit; font-weight: 700; padding: 10px 16px; border: 2px solid var(--ink); border-radius: 12px;
+      background: #fff; color: var(--ink); cursor: pointer;
+    }
+    button.on { background: var(--orange); }
+    button.ghost { border-style: dashed; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "@babylonjs/core": "https://cdn.jsdelivr.net/npm/@babylonjs/core@8.56.0/index.js",
+        "@babylonjs/core/": "https://cdn.jsdelivr.net/npm/@babylonjs/core@8.56.0/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="c" tabindex="0"></canvas>
+  <div id="title" class="card"><b>Étudiant eUniversité · version mini</b><span>Glissez pour tourner autour · molette pour zoomer</span></div>
+  <div id="bar" class="card">
+    <button data-who="boy" class="on">Étudiant</button>
+    <button data-who="girl">Étudiante</button>
+    <button data-pose="idle" class="on">Repos</button>
+    <button data-pose="run">Course</button>
+    <button data-pose="jump">Saut</button>
+    <button data-pose="slide">Glissade</button>
+    <button data-pose="victory">Victoire</button>
+    <button data-pose="fail">Échec</button>
+    <button id="spin" class="ghost">Tourner : oui</button>
+    <button id="back" class="ghost">Vue de dos (jeu)</button>
+  </div>
+  <script type="module" src="./character.js"></script>
+</body>
+</html>

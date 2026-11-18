@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PoC Study 3D · Course des savoirs</title>
+  <style>
+    :root {
+      --space: #0a0420;
+      --glass: rgba(14, 8, 40, .8);
+      --ink: #f6f2ff;
+      --muted: #b9acec;
+      --ok: #39ff7a;
+      --ko: #ff3b5c;
+      --orange: #ff9a2b;
+      --pink: #ff2bd6;
+      --cyan: #2be9ff;
+    }
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      font-family: system-ui, sans-serif; color: var(--ink);
+      background: radial-gradient(ellipse at top, #2a0f5a 0%, var(--space) 70%);
+    }
+    canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+
+    .card {
+      background: var(--glass); border: 1px solid rgba(255, 43, 214, .5);
+      border-radius: 16px; padding: 10px 16px; backdrop-filter: blur(6px);
+      box-shadow: 0 0 22px rgba(255, 43, 214, .28), inset 0 0 18px rgba(43, 233, 255, .1);
+    }
+
+    #top {
+      position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+      width: min(980px, calc(100% - 24px)); display: grid; gap: 8px; pointer-events: none;
+    }
+    #hud { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; font-size: 15px; }
+    #hud .title {
+      font-weight: 800;
+      background: linear-gradient(90deg, var(--pink), var(--cyan));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .lives .heart { font-size: 22px; color: var(--ko); margin-right: 2px; }
+    .lives .heart.lost { color: #3a3f66; }
+    #stats { color: var(--muted); }
+
+    /* Progression du parcours : les pastilles marquent les zones de question à venir */
+    #progress { position: relative; height: 10px; border-radius: 6px; background: rgba(255, 255, 255, .12); }
+    #progress .fill { height: 100%; width: 0; border-radius: 6px; background: linear-gradient(90deg, var(--pink), var(--cyan)); }
+    #progress .tick {
+      position: absolute; top: -3px; width: 16px; height: 16px; margin-left: -8px; box-sizing: border-box;
+      border-radius: 50%; background: var(--space); border: 3px solid var(--orange);
+    }
+    #progress .tick.ok { border-color: var(--ok); background: var(--ok); }
+    #progress .tick.ko { border-color: var(--ko); background: var(--ko); }
+
+    #question { padding: 12px 16px 14px; }
+    #question[hidden] { display: none; }
+    #q-meta { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--orange); }
+    #q-text { font-size: clamp(20px, 2.8vw, 32px); font-weight: 800; margin: 4px 0 12px; line-height: 1.2; }
+    #q-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .opt {
+      display: flex; align-items: center; gap: 10px;
+      border-radius: 12px; padding: 8px 10px; background: rgba(255, 255, 255, .06);
+      border: 2px solid var(--c); font-size: clamp(14px, 1.7vw, 20px); font-weight: 600; line-height: 1.2;
+      box-shadow: 0 0 14px color-mix(in srgb, var(--c) 55%, transparent), inset 0 0 10px color-mix(in srgb, var(--c) 18%, transparent);
+    }
+    .chip {
+      flex: none; width: 32px; height: 32px; border-radius: 50%;
+      background: var(--c); color: #0b1030; font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .lane-name { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+    @media (max-width: 720px) { #q-options { grid-template-columns: 1fr; } }
+
+    #hint { position: fixed; bottom: 12px; left: 12px; right: 12px; font-size: 13px; color: var(--muted); pointer-events: none; }
+
+    #banner {
+      position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%);
+      width: min(640px, calc(100% - 32px)); pointer-events: none;
+      font-size: 16px; line-height: 1.45;
+    }
+    #banner[hidden] { display: none; }
+    #banner.ok { border-left: 5px solid var(--ok); }
+    #banner.ko { border-left: 5px solid var(--ko); }
+    #banner .headline { font-weight: 800; margin-bottom: 4px; }
+    #banner.ok .headline { color: var(--ok); }
+    #banner.ko .headline { color: var(--ko); }
+    #banner .source { display: block; margin-top: 6px; font-size: 13px; color: var(--muted); }
+
+    #flash {
+      position: fixed; inset: 0; pointer-events: none; opacity: 0;
+      background: radial-gradient(ellipse at center, rgba(255, 60, 90, 0) 35%, rgba(255, 60, 90, .7) 100%);
+    }
+    #flash.on { animation: flash .5s ease-out; }
+    @keyframes flash { from { opacity: 1; } to { opacity: 0; } }
+
+    .overlay {
+      position: fixed; inset: 0; background: rgba(4, 6, 20, .72);
+      display: flex; align-items: center; justify-content: center; padding: 16px;
+    }
+    .overlay[hidden] { display: none; }
+    .panel { width: min(580px, 100%); max-height: 92vh; overflow: auto; }
+    .panel h2 { margin: 0 0 6px; font-size: 22px; }
+    .panel .score { color: var(--muted); margin: 0 0 12px; }
+    .results { list-style: none; padding: 0; margin: 12px 0; }
+    .results li { padding: 7px 0; border-bottom: 1px solid rgba(160, 200, 255, .15); font-size: 15px; line-height: 1.35; }
+    .results .ok { color: var(--ok); }
+    .results .ko { color: var(--ko); }
+    .actions { margin-top: 14px; display: flex; justify-content: flex-end; }
+    button.primary {
+      font: inherit; font-weight: 800; padding: 11px 20px; border: 0; border-radius: 12px;
+      background: linear-gradient(135deg, #ffb347, #ff6b4a); color: #1a0f05; cursor: pointer;
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "@babylonjs/core": "https://cdn.jsdelivr.net/npm/@babylonjs/core@8.56.0/index.js",
+        "@babylonjs/core/": "https://cdn.jsdelivr.net/npm/@babylonjs/core@8.56.0/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+  <div id="flash"></div>
+
+  <div id="top">
+    <div id="hud" class="card">
+      <span class="title" id="mission-title"></span>
+      <span class="lives" id="lives" aria-label="Protections"></span>
+      <span id="stats"></span>
+    </div>
+    <div id="progress"><div class="fill" id="progress-fill"></div></div>
+    <div id="question" class="card" hidden>
+      <div id="q-meta"></div>
+      <div id="q-text"></div>
+      <div id="q-options"></div>
+    </div>
+  </div>
+
+  <div id="banner" class="card" hidden></div>
+  <div id="hint">← → : changer de voie · ↑ : sauter (orange) · ↓ : glisser (violet) · esquivez le rouge · en Zone Savoir, prenez la voie de la bonne réponse · P : pause</div>
+
+  <div id="pause" class="overlay" hidden>
+    <div class="card panel"><h2>Pause</h2><p class="score">Appuyez sur P pour reprendre.</p></div>
+  </div>
+
+  <div id="bilan" class="overlay" hidden>
+    <div class="card panel">
+      <h2 id="bilan-title"></h2>
+      <p class="score" id="bilan-score"></p>
+      <ul class="results" id="bilan-list"></ul>
+      <div class="actions">
+        <button class="primary" id="bilan-restart">Rejouer</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./game.js"></script>
+</body>
+</html>

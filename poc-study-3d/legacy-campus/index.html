@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>eUniversité Study · Course des savoirs</title>
+  <style>
+    :root {
+      --orange: #FFA000;
+      --cream: #FFF0D5;
+      --ink: #19150E;
+      --ok: #2f8a4b;
+      --ko: #c0392b;
+      --line: rgba(25, 21, 14, .14);
+    }
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; color: var(--ink);
+      background: #bfe0f0;
+    }
+    canvas { width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+
+    .card {
+      background: rgba(255, 240, 213, .95); border: 2px solid var(--orange);
+      border-radius: 16px; padding: 10px 16px;
+      box-shadow: 0 6px 20px rgba(25, 21, 14, .18);
+    }
+
+    #top {
+      position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+      width: min(980px, calc(100% - 24px)); display: grid; gap: 8px; pointer-events: none;
+    }
+    #hud { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; font-size: 15px; font-weight: 600; }
+    #hud .title { font-weight: 800; }
+    .lives .heart { font-size: 22px; color: var(--orange); margin-right: 2px; }
+    .lives .heart.lost { color: rgba(25, 21, 14, .2); }
+
+    /* Progression du parcours : les pastilles marquent les zones de question à venir */
+    #progress { position: relative; height: 10px; border-radius: 6px; background: rgba(255, 240, 213, .9); border: 1px solid var(--line); }
+    #progress .fill { height: 100%; width: 0; border-radius: 6px; background: var(--orange); }
+    #progress .tick {
+      position: absolute; top: -4px; width: 16px; height: 16px; margin-left: -8px; box-sizing: border-box;
+      border-radius: 50%; background: var(--cream); border: 3px solid var(--ink);
+    }
+    #progress .tick.ok { border-color: var(--ok); background: var(--ok); }
+    #progress .tick.ko { border-color: var(--ko); background: var(--ko); }
+
+    #question { padding: 12px 16px 14px; }
+    #question[hidden] { display: none; }
+    #q-meta { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; color: #a86400; }
+    #q-text { font-size: clamp(20px, 2.8vw, 30px); font-weight: 800; margin: 4px 0 12px; line-height: 1.2; }
+    #q-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .opt {
+      display: flex; align-items: center; gap: 10px; background: #fff;
+      border-radius: 12px; padding: 8px 10px; border: 2px solid var(--ink);
+      font-size: clamp(14px, 1.7vw, 19px); font-weight: 600; line-height: 1.2;
+    }
+    .chip {
+      flex: none; width: 32px; height: 32px; border-radius: 50%;
+      background: var(--orange); color: var(--ink); font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .lane-name { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #7a6a4f; }
+    @media (max-width: 720px) { #q-options { grid-template-columns: 1fr; } }
+
+    #hint {
+      position: fixed; bottom: calc(10px + env(safe-area-inset-bottom)); left: 12px; right: 12px; font-size: 12px;
+      color: var(--ink); background: rgba(255, 240, 213, .8); border-radius: 8px; padding: 4px 8px;
+      pointer-events: none; width: fit-content; max-width: calc(100% - 24px);
+    }
+
+    #banner {
+      position: fixed; left: 50%; bottom: 52px; transform: translateX(-50%);
+      width: min(640px, calc(100% - 32px)); pointer-events: none; font-size: 16px; line-height: 1.45;
+    }
+    #banner[hidden] { display: none; }
+    #banner.ok { border-color: var(--ok); }
+    #banner.ko { border-color: var(--ko); }
+    #banner .headline { font-weight: 800; margin-bottom: 4px; }
+    #banner.ok .headline { color: var(--ok); }
+    #banner.ko .headline { color: var(--ko); }
+    #banner .source { display: block; margin-top: 6px; font-size: 13px; color: #7a6a4f; }
+
+    #flash {
+      position: fixed; inset: 0; pointer-events: none; opacity: 0;
+      background: radial-gradient(ellipse at center, rgba(192, 57, 43, 0) 40%, rgba(192, 57, 43, .55) 100%);
+    }
+    #flash.on { animation: flash .5s ease-out; }
+    @keyframes flash { from { opacity: 1; } to { opacity: 0; } }
+
+    .overlay {
+      position: fixed; inset: 0; background: rgba(25, 21, 14, .55);
+      display: flex; align-items: center; justify-content: center; padding: 16px;
+    }
+    .overlay[hidden] { display: none; }
+    .panel { width: min(580px, 100%); max-height: 92vh; overflow: auto; }
+    .panel h2 { margin: 0 0 6px; font-size: 22px; }
+    .panel .score { color: #5b4d36; margin: 0 0 12px; font-weight: 600; }
+    .results { list-style: none; padding: 0; margin: 12px 0; }
+    .results li { padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 15px; line-height: 1.35; }
+    .results .ok { color: var(--ok); }
+    .results .ko { color: var(--ko); }
+    .credits { font-size: 11px; color: #7a6a4f; line-height: 1.4; margin: 10px 0 0; }
+    .actions { margin-top: 14px; display: flex; justify-content: flex-end; }
+    button.primary {
+      font: inherit; font-weight: 800; padding: 11px 20px; border: 0; border-radius: 12px;
+      background: var(--orange); color: var(--ink); cursor: pointer;
+    }
+    #loading { background: var(--cream); flex-direction: column; gap: 10px; font-weight: 700; }
+    #loading .bar { width: min(280px, 70vw); height: 8px; border-radius: 6px; background: rgba(25, 21, 14, .15); overflow: hidden; }
+    #loading .bar i { display: block; height: 100%; width: 0; background: var(--orange); }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "@babylonjs/core": "https://cdn.jsdelivr.net/npm/@babylonjs/core@8.56.0/index.js",
+        "@babylonjs/core/": "https://cdn.jsdelivr.net/npm/@babylonjs/core@8.56.0/",
+        "@babylonjs/loaders/": "https://cdn.jsdelivr.net/npm/@babylonjs/loaders@8.56.0/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="scene" tabindex="0"></canvas>
+  <div id="flash"></div>
+
+  <div id="top">
+    <div id="hud" class="card">
+      <span class="title" id="mission-title"></span>
+      <span class="lives" id="lives" aria-label="Protections"></span>
+      <span id="stats"></span>
+    </div>
+    <div id="progress"><div class="fill" id="progress-fill"></div></div>
+    <div id="question" class="card" hidden>
+      <div id="q-meta"></div>
+      <div id="q-text"></div>
+      <div id="q-options"></div>
+    </div>
+  </div>
+
+  <div id="banner" class="card" hidden></div>
+  <div id="hint">← → : voie · ↑ : sauter (banc) · ↓ : glisser (banderole) · barrières : changer de voie · en Zone Savoir, passez sous le bon panneau · P : pause</div>
+
+  <div id="loading" class="overlay">
+    <div>Chargement du campus…</div>
+    <div class="bar"><i id="loading-bar"></i></div>
+  </div>
+
+  <div id="pause" class="overlay" hidden>
+    <div class="card panel"><h2>Pause</h2><p class="score">Appuyez sur P pour reprendre.</p></div>
+  </div>
+
+  <div id="bilan" class="overlay" hidden>
+    <div class="card panel">
+      <h2 id="bilan-title"></h2>
+      <p class="score" id="bilan-score"></p>
+      <ul class="results" id="bilan-list"></ul>
+      <p class="credits">
+        Crédits 3D : personnage « Man », bâtiments (Kenney, Quaternius), arbres, mobilier : CC0 (Quaternius, Kenney, Kay Lousberg).
+        Toque de diplômé : « Graduation cap » par Poly by Google, licence CC-BY 3.0.
+      </p>
+      <div class="actions">
+        <button class="primary" id="bilan-restart">Rejouer</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./game.js"></script>
+</body>
+</html>
