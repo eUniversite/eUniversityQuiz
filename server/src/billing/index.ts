@@ -42,9 +42,9 @@ export const publicLimits = (e: Entitlements) => ({ plan: e.plan, uploadMb: e.up
 
 const returnUrl = (paymentId: string) => `${config.publicUrl}/etudiant/abonnement/retour?payment=${paymentId}`
 
-/** Démarre un paiement. Un paiement en attente récent pour la même formule est réutilisé (pas de doublon si on reclique). */
+/** Démarre un paiement. Un paiement en attente de moins de 14 minutes pour la même formule est réutilisé (pas de doublon si on reclique). */
 export async function startCheckout(student: { id: string; name: string; email: string }, plan: Plan): Promise<{ paymentId: string; checkoutUrl: string }> {
-  const dayAgo = new Date(Date.now() - 23 * 3600_000) // le lien GeniusPay expire après 24 h
+  const dayAgo = new Date(Date.now() - 14 * 60_000) // le lien de paiement GeniusPay n'est valable que 15 minutes
   const reuse = await prisma.studentPayment.findFirst({
     where: { studentId: student.id, plan, status: 'PENDING', checkoutUrl: { not: null }, createdAt: { gt: dayAgo } },
     orderBy: { createdAt: 'desc' },

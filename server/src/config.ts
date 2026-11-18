@@ -42,10 +42,10 @@ export const config = {
   ssoClients: (() => { try { return JSON.parse(process.env.SSO_CLIENTS || '[]') as { id: string; secret?: string; redirectUris: string[] }[] } catch { return [] } })(),
   ssoPrivateKey: (process.env.SSO_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
   // Abonnement Study : paiement GeniusPay (clés sandbox pk_sandbox_… / sk_sandbox_…, puis pk_live_… / sk_live_…).
-  geniuspayKey: process.env.GENIUSPAY_API_KEY || '',
   geniuspaySecret: process.env.GENIUSPAY_API_SECRET || '',
   geniuspayWebhookSecret: process.env.GENIUSPAY_WEBHOOK_SECRET || '',
-  geniuspayBase: (process.env.GENIUSPAY_BASE_URL || 'https://api.geniuspay.ci/v2').replace(/\/+$/, ''),
+  // Tolérant : espaces, « / » final, ou adresse d'un endpoint collée par erreur (…/v2/payments/initiate) ramenés à la base de l'API.
+  geniuspayBase: (process.env.GENIUSPAY_BASE_URL || 'https://api.geniuspay.ci/v2').trim().replace(/\/payments(\/.*)?$/, '').replace(/\/+$/, ''),
   // Polling de secours : délai laissé au webhook (secondes) après le retour de l'étudiant, puis s'il n'est jamais revenu.
   billingWebhookGrace: Number(process.env.BILLING_WEBHOOK_GRACE ?? 30),
   billingUnreturnedAfter: Number(process.env.BILLING_UNRETURNED_AFTER ?? 600),

@@ -21,11 +21,16 @@ async function student(password = 'motdepasse1') {
   return { email, id: r.json.user.id as string, token: r.json.token as string }
 }
 
-function webhook(event: string, tx: Record<string, unknown>, signature?: string) {
-  const raw = JSON.stringify({ event, data: { transaction: tx } })
+/** Livraison v2 : { event_type, transaction_ref }, signature « t=…,v1=… ». `sig` remplace la signature valide. */
+function webhook(event: string, reference: string, status?: string, sig?: string) {
+  const raw = JSON.stringify({ event_type: event, transaction_ref: reference, ...(status ? { status } : {}) })
   const ts = String(Math.floor(Date.now() / 1000))
-  const sig = signature ?? crypto.createHmac('sha256', SECRET).update(`${ts}.${raw}`).digest('hex')
-  return fetch(`${app.base}/api/billing/webhook/geniuspay`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-webhook-timestamp': ts, 'x-webhook-signature': sig, 'x-webhook-event': event }, body: raw })
+  const v1 = sig ?? crypto.createHmac('sha256', SECRET).update(`${ts}.${raw}`).digest('hex')
+  return fetch(`${app.base}/api/billing/webhook/geniuspay`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-geniuspay-timestamp': ts, 'x-geniuspay-signature': `t=${ts},v1=${v1}` }, body: raw })
+}
+
+async function refOf(paymentId: string) {
+  return (await prisma.studentPayment.findUniqueOrThrow({ where: { id: paymentId } })).reference
 }
 
 function mockGateway(ref = 'MTX-' + Math.random().toString(36).slice(2, 10)) {
@@ -98,17 +103,18 @@ describe('Abonnement', () => {
     mockGateway(ref('WH1'))
     const { json: { paymentId } } = await api(app, 'POST', '/billing/checkout', { plan: 'MONTHLY' }, s.token)
 
-    expect((await webhook('payment.success', { reference: ref('WH1') }, 'deadbeef')).status).toBe(401)
-    expect((await webhook('payment.success', { reference: ref('INCONNU') })).status).toBe(404)
-    expect((await webhook('webhook.test', {})).status).toBe(200)
+    const r = await refOf(paymentId)
+    expect((await webhook('transaction.completed', r, 'completed', 'deadbeef')).status).toBe(401)
+    expect((await webhook('transaction.completed', ref('INCONNU'))).status).toBe(404)
+    expect((await webhook('webhook.test', r)).status).toBe(200)
     expect((await api(app, 'GET', '/student/me', undefined, s.token)).json.limits.plan).toBe('free')
 
-    expect((await webhook('payment.success', { reference: ref('WH1'), status: 'completed' })).status).toBe(200)
+    expect((await webhook('transaction.completed', r, 'completed')).status).toBe(200)
     expect((await api(app, 'GET', '/student/me', undefined, s.token)).json.limits.plan).toBe('paid')
     const before = await prisma.subscription.findMany({ where: { studentId: s.id } })
     expect(before).toHaveLength(1)
 
-    const replay = await webhook('payment.success', { reference: ref('WH1'), status: 'completed' })
+    const replay = await webhook('transaction.completed', r, 'completed')
     expect((await replay.json()).message).toBe('already processed')
     expect(await prisma.subscription.count({ where: { studentId: s.id } })).toBe(1)
     expect((await api(app, 'GET', `/billing/payments/${paymentId}`, undefined, s.token)).json.status).toBe('COMPLETED')
@@ -118,8 +124,8 @@ describe('Abonnement', () => {
     const s = await student()
     for (const [r, plan] of [[ref('R1'), 'MONTHLY'], [ref('R2'), 'YEARLY']] as const) {
       mockGateway(r)
-      await api(app, 'POST', '/billing/checkout', { plan }, s.token)
-      await webhook('payment.success', { reference: r })
+      const { json: { paymentId } } = await api(app, 'POST', '/billing/checkout', { plan }, s.token)
+      await webhook('transaction.completed', await refOf(paymentId))
     }
     const subs = await prisma.subscription.findMany({ where: { studentId: s.id }, orderBy: { startsAt: 'asc' } })
     expect(subs.map((x) => x.plan)).toEqual(['MONTHLY', 'YEARLY'])
@@ -169,14 +175,14 @@ describe('Abonnement', () => {
 })
 
 describe('API GeniusPay v2', () => {
-  const V2 = 'https://api.geniuspay.ci/v2', V1 = 'https://geniuspay.ci/api/v1/merchant'
+  const V2 = 'https://api.geniuspay.ci/v2'
   const reply = (status: number, json: unknown) => new Response(JSON.stringify(json), { status, headers: { 'content-type': 'application/json' } })
   const input = { amount: 1000, reference: 'STUDY-abc', description: 'Abonnement', customer: { name: 'Awa', email: 'awa@x.fr' }, successUrl: 'https://s/ok', errorUrl: 'https://s/ko', metadata: { payment_reference: 'STUDY-abc' } }
-  const original = { base: config.geniuspayBase, key: config.geniuspayKey, secret: config.geniuspaySecret }
-  afterEach(() => Object.assign(config, { geniuspayBase: original.base, geniuspayKey: original.key, geniuspaySecret: original.secret }))
+  const original = { base: config.geniuspayBase, secret: config.geniuspaySecret }
+  afterEach(() => Object.assign(config, { geniuspayBase: original.base, geniuspaySecret: original.secret }))
 
-  it('crée le paiement en v2 : Bearer sk_, champs du contrat, checkout_url', async () => {
-    Object.assign(config, { geniuspayBase: V2, geniuspayKey: '', geniuspaySecret: 'sk_sandbox_x' })
+  it('crée le paiement : Bearer sk_, champs du contrat, checkout_url', async () => {
+    Object.assign(config, { geniuspayBase: V2, geniuspaySecret: 'sk_sandbox_x' })
     expect(gateway.configured()).toBe(true) // en v2, la clé secrète suffit
     const f = vi.spyOn(globalThis, 'fetch').mockResolvedValue(reply(201, { transaction_id: 'tx-1', checkout_url: 'https://pay.geniuspay.ci/c/1' }))
     expect(await gateway.createCheckout(input)).toEqual({ checkoutUrl: 'https://pay.geniuspay.ci/c/1', gatewayRef: 'tx-1' })
@@ -186,7 +192,7 @@ describe('API GeniusPay v2', () => {
     expect(JSON.parse(String(init.body))).toMatchObject({ reference: 'STUDY-abc', amount: 1000, currency: 'XOF', country_code: 'CI', idempotency_key: 'STUDY-abc', success_url: 'https://s/ok', cancel_url: 'https://s/ko', customer_email: 'awa@x.fr' })
   })
 
-  it('v2 : sans identifiant renvoyé, la référence du paiement fait foi ; une erreur renvoie son message', async () => {
+  it('sans identifiant renvoyé, la référence du paiement fait foi ; une erreur renvoie son message', async () => {
     Object.assign(config, { geniuspayBase: V2, geniuspaySecret: 'sk_sandbox_x' })
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(reply(201, { checkout_url: 'https://pay/2' }))
     expect((await gateway.createCheckout(input)).gatewayRef).toBe('STUDY-abc')
@@ -194,19 +200,14 @@ describe('API GeniusPay v2', () => {
     await expect(gateway.createCheckout(input)).rejects.toThrow(new GatewayError('Montant invalide'))
   })
 
-  it('v2 : le statut se lit par notre référence ; l’ancienne API par l’identifiant GeniusPay', async () => {
+  it('le statut se lit par notre référence', async () => {
     Object.assign(config, { geniuspayBase: V2, geniuspaySecret: 'sk_sandbox_x' })
     const f = vi.spyOn(globalThis, 'fetch').mockResolvedValue(reply(200, { status: 'completed' }))
-    expect(await gateway.fetchStatus({ reference: 'STUDY-abc', gatewayRef: 'tx-1' })).toBe('completed')
+    expect(await gateway.fetchStatus({ reference: 'STUDY-abc' })).toBe('completed')
     expect(f.mock.calls[0][0]).toBe(`${V2}/payments/STUDY-abc/status`)
-    Object.assign(config, { geniuspayBase: V1, geniuspayKey: 'pk_x' })
-    f.mockResolvedValue(reply(200, { data: { status: 'pending' } }))
-    expect(await gateway.fetchStatus({ reference: 'STUDY-abc', gatewayRef: 'MTX-9' })).toBe('pending')
-    expect(f.mock.calls[1][0]).toBe(`${V1}/payments/MTX-9`)
-    expect(((f.mock.calls[1][1] as RequestInit).headers as Record<string, string>)['X-API-Key']).toBe('pk_x')
   })
 
-  it('webhook v2 : signature « t=…,v1=… », transaction.completed, retrouve le paiement par transaction_ref', async () => {
+  it('webhook : signature « t=…,v1=… », transaction.completed, retrouve le paiement par transaction_ref', async () => {
     const s = await student()
     mockGateway(ref('V2WH'))
     const { json: { paymentId } } = await api(app, 'POST', '/billing/checkout', { plan: 'MONTHLY' }, s.token)
@@ -227,7 +228,7 @@ describe('API GeniusPay v2', () => {
     expect(await prisma.subscription.count({ where: { studentId: s.id } })).toBe(1)
   })
 
-  it('webhook v2 : transaction.failed marque l’échec, un événement inconnu est ignoré', async () => {
+  it('webhook : transaction.failed marque l’échec, un événement inconnu est ignoré', async () => {
     const s = await student()
     mockGateway(ref('V2FAIL'))
     const { json: { paymentId } } = await api(app, 'POST', '/billing/checkout', { plan: 'MONTHLY' }, s.token)
